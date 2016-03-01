@@ -1,0 +1,87 @@
+module LE where
+  
+  data Entity where MkEnt : Entity end
+  
+  
+  data family Category end
+  
+  let family interp (c : Category) : Type end
+  
+  
+  data instance Category where
+    | S : Category
+    | NP : Category
+    | Un (x y : Category) : Category
+    | Ov (x y : Category) : Category
+  end
+  
+  let instance interp where
+    | interp S = Type
+    | interp NP = Entity
+    | interp (Un x y) = interp x -> interp y
+    | interp (Ov x y) = interp y -> interp x
+  end
+  
+  
+  data QCategory where
+    | QCatDone (c : Category) : QCategory
+    | QCatForall (a : Type) (f : a -> QCategory) : QCategory
+  end
+  
+  let qCatInterp : QCategory -> Type where
+    | qCatInterp (QCatDone c) = interp c
+    | qCatInterp (QCatForall a f) = {x : a} -> qCatInterp (f x)
+  end
+  
+  
+  data Rule where
+    | Done (c : Category) : Rule
+    | Arg (c : Category) (r : Rule) : Rule
+  end
+  
+  let ruleInterp : Rule -> Type where
+    | ruleInterp (Done c) = interp c
+    | ruleInterp (Arg c r) = interp c -> ruleInterp r
+  end
+  
+  data QRule where
+    | QDone (r : Rule) : QRule
+    | QForall (a : Type) (f : a -> QRule) : QRule
+  end
+  
+  let qRuleInterp : QRule -> Type where
+    | qRuleInterp (QDone r) = ruleInterp r
+    | qRuleInterp (QForall a f) = {c : a} -> qRuleInterp (f c)
+  end
+  
+  
+  let rule : QRule where
+    | rule =
+        QForall Category (\x ->
+         QForall Category (\y ->
+          QDone (Arg x (Arg (Un x y) (Done y)))))
+  end
+  
+  let ruleVal : qRuleInterp rule where
+    | ruleVal x f = f x
+  end
+  
+  data String where MkStr : String end
+  
+  data Word where
+    | MkWord (w : Rec { form : String
+                      , category : QCategory
+                      , meaning : qCatInterp category
+                      })
+        : Word
+  end
+  
+  let x : Word where
+    | x = MkWord
+            { form = MkStr
+            , category = QCatDone (Ov NP NP)
+            , meaning = \x -> x
+            }
+  end
+  
+end
