@@ -133,6 +133,10 @@ instance ParamEval Int (Env EnvKey Term) Term where
        return $ annH em et
   paramEval _ (In Type) =
     return $ In Type
+  paramEval _ (In Str) =
+    return $ In Str
+  paramEval _ (In (MkStr s)) =
+    return $ In (MkStr s)
   paramEval l (In (Fun plic a sc)) =
     do ea <- underF (paramEval l) a
        esc <- underF (paramEval l) sc

@@ -1,87 +1,192 @@
 module LE where
   
-  data Entity where MkEnt : Entity end
   
+  
+  
+  -- These are the core types used in LE projects
+  
+  data Entity end
+  
+  data family Predicate end
+  
+  data family Relation end
+  
+  data Pred (p : Predicate) (e : Entity) end
+  
+  data Rel (r : Relation) (e x : Entity) end
+  
+  data instance Relation where
+    | Exp : Relation
+    | Subj : Relation
+  end
+  
+  
+  
+  
+  
+  -- These are some utility types that make things easier
+  
+  data Ex (p : Entity -> Type) where
+    | MkEx {p : Entity -> Type} (witness : Entity) (proof : p witness) : Ex p
+  end
+  
+  data And (a b : Type) where
+    | MkAnd {a b : Type} (fst : a) (snd : b) : And a b
+  end
+  
+  
+  
+  
+  
+  -- Categories are syntactic types. They can be interpreted into Golem types.
   
   data family Category end
   
-  let family interp (c : Category) : Type end
+  let family interpCat (c : Category) : Type end
   
+  
+  
+  -- A rule type is a function over categories. They can be interpreted into
+  -- Golem types.
+  
+  data RuleType where
+    | RDone (c : Category) : RuleType
+    | RArg (c : Category) (r : RuleType) : RuleType
+  end
+  
+  let interpRule : RuleType -> Type where
+    | interpRule (RDone c) = interpCat c
+    | interpRule (RArg c r) = interpCat c -> interpRule r
+  end
+  
+  
+  
+  -- A qrule type is a prenex quantified rule type. They can be interpreted
+  -- into Golem types.
+  
+  data QRuleType where
+    | QRDone (r : RuleType) : QRuleType
+    | QRForall (a : Type) (f : a -> QRuleType) : QRuleType
+  end
+  
+  let interpQRule : QRuleType -> Type where
+    | interpQRule (QRDone r) = interpRule r
+    | interpQRule (QRForall a f) = {x : a} -> interpQRule (f x)
+  end
+  
+  
+  
+  -- A word is a triple of a form string, a category, and an inhabitant of the
+  -- category's interpretation.
+  
+  data Word where
+    | MkWord (w : Rec { form : String
+                      , category : Category
+                      , meaning : interpCat category
+                      })
+        : Word
+  end
+  
+  
+  
+  -- A rule is a pair of a qrule type, and an inhabitant of it's
+  -- interpretation.
+  
+  data Rule where
+    | MkRule (r : Rec { ruleType : QRuleType
+                      , ruleMeaning : interpQRule ruleType
+                      })
+             : Rule
+  end
+  
+  
+  
+  
+  
+  
+  -- This is a demo of categories and interpretation thereof.
+  
+  data Num where
+    | Sg : Num
+    | Pl : Num
+  end
   
   data instance Category where
     | S : Category
+    | N (num : Num) : Category
     | NP : Category
     | Un (x y : Category) : Category
     | Ov (x y : Category) : Category
   end
   
-  let instance interp where
-    | interp S = Type
-    | interp NP = Entity
-    | interp (Un x y) = interp x -> interp y
-    | interp (Ov x y) = interp y -> interp x
+  let instance interpCat where
+    | interpCat S = Entity -> Type
+    | interpCat (N _) = Entity -> Type
+    | interpCat NP = Entity
+    | interpCat (Un x y) = interpCat x -> interpCat y
+    | interpCat (Ov x y) = interpCat y -> interpCat x
   end
   
   
-  data QCategory where
-    | QCatDone (c : Category) : QCategory
-    | QCatForall (a : Type) (f : a -> QCategory) : QCategory
-  end
-  
-  let qCatInterp : QCategory -> Type where
-    | qCatInterp (QCatDone c) = interp c
-    | qCatInterp (QCatForall a f) = {x : a} -> qCatInterp (f x)
-  end
   
   
-  data Rule where
-    | Done (c : Category) : Rule
-    | Arg (c : Category) (r : Rule) : Rule
-  end
   
-  let ruleInterp : Rule -> Type where
-    | ruleInterp (Done c) = interp c
-    | ruleInterp (Arg c r) = interp c -> ruleInterp r
-  end
   
-  data QRule where
-    | QDone (r : Rule) : QRule
-    | QForall (a : Type) (f : a -> QRule) : QRule
-  end
+  -- This is a demo of defining rules.
   
-  let qRuleInterp : QRule -> Type where
-    | qRuleInterp (QDone r) = ruleInterp r
-    | qRuleInterp (QForall a f) = {c : a} -> qRuleInterp (f c)
+  let r : Rule where
+    | r = MkRule
+          { ruleType = QRForall Category (\x ->
+                         QRForall Category (\y ->
+                           QRDone (RArg x (RArg (Un x y) (RDone y)))))
+          , ruleMeaning = \x f -> f x
+          }
   end
   
   
-  let rule : QRule where
-    | rule =
-        QForall Category (\x ->
-         QForall Category (\y ->
-          QDone (Arg x (Arg (Un x y) (Done y)))))
+  
+  
+  
+  
+  -- This is a demo of defining predicates.
+  
+  data instance Predicate where
+    | Dog : Predicate
+    | Bark : Predicate
   end
   
-  let ruleVal : qRuleInterp rule where
-    | ruleVal x f = f x
+  
+  
+  
+  
+  -- This is a demo of defining words.
+  
+  let dog0 : Word where
+    | dog0 =
+        MkWord
+        { form = "dog"
+        , category = N Sg
+        , meaning = \x -> Ex (\e -> And (Pred Dog e) (Rel Exp e x))
+        }
   end
   
-  data String where MkStr : String end
   
-  data Word where
-    | MkWord (w : Rec { form : String
-                      , category : QCategory
-                      , meaning : qCatInterp category
-                      })
-        : Word
+  
+  
+  -- This is a demo of defining custom word-building helper functions.
+  
+  let nounSg : String -> Predicate -> Word where
+    | nounSg s p =
+        MkWord
+        { form = s
+        , category = N Sg
+        , meaning = \x -> Ex (\e -> And (Pred p e) (Rel Exp e x))
+        }
   end
   
-  let x : Word where
-    | x = MkWord
-            { form = MkStr
-            , category = QCatDone (Ov NP NP)
-            , meaning = \x -> x
-            }
+  
+  let dog1 : Word where
+    | dog1 = nounSg "dog" Dog
   end
   
 end

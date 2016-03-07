@@ -23,7 +23,7 @@ module Golem.Utils.Vars where
 -- accidentally using it for the wrong things.
 
 newtype FreeVar = FreeVar String
-  deriving (Eq,Show)
+  deriving (Show,Eq,Ord)
 
 
 
@@ -31,7 +31,7 @@ newtype FreeVar = FreeVar String
 -- accidentally using it for the wrong things.
 
 newtype BoundVar = BoundVar Int
-  deriving (Eq,Show)
+  deriving (Show,Eq,Ord)
 
 
 
@@ -39,7 +39,7 @@ newtype BoundVar = BoundVar Int
 -- accidentally using it for the wrong things.
 
 newtype MetaVar = MetaVar Int
-  deriving (Eq,Show,Num,Ord)
+  deriving (Show,Num,Eq,Ord)
 
 
 

@@ -47,6 +47,11 @@ instance MonadUnify TermF Elaborator where
            ]
   equate Type Type =
     return []
+  equate Str Str =
+    return []
+  equate (MkStr s) (MkStr s') =
+    do guard (s == s')
+       return []
   equate (Fun plic1 a1 sc1) (Fun plic2 a2 sc2) =
     do unless (plic1 == plic2)
          $ throwError $ "Mismatching plicities when unifying "

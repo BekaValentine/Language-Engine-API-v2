@@ -38,6 +38,10 @@ instance Eq1 Telescope where
   eq1 (Telescope as) (Telescope as') = as == as'
 
 
+instance Ord1 Telescope where
+  compare1 (Telescope as) (Telescope as') = compare as as'
+
+
 namesTelescope :: Telescope (Scope f) -> [String]
 namesTelescope (Telescope ascs) = names (last ascs)
 
@@ -155,6 +159,11 @@ data BindingTelescope a
 instance Eq1 BindingTelescope where
   eq1 (BindingTelescope as b) (BindingTelescope as' b') =
     as == as' && b == b'
+
+
+instance Ord1 BindingTelescope where
+  compare1 (BindingTelescope as b) (BindingTelescope as' b') =
+    compare as as' `mappend` compare b b'
 
 
 namesBindingTelescope :: BindingTelescope (Scope f) -> [String]

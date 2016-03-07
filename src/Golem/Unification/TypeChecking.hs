@@ -356,30 +356,34 @@ inferify (In (Ann m t0)) =
      et <- evaluate (SubstitutedTerm elt) -- @t@ can't be changed by checking.
      elm <- checkify (instantiate0 m) et
      return (elm, normTerm et)
-inferify (In Type)
-  = return $ (ElaboratedTerm (In Type), In Type)
-inferify (In (Fun plic arg0 sc))
-  = do let arg = instantiate0 arg0
-       ElaboratedTerm elarg <- checkify arg (NormalTerm (In Type))
-       [x@(FreeVar n)] <- freshRelTo (names sc) context
-       l <- getElab quoteLevel
-       ElaboratedTerm elbody <- extendElab context [(x, QLJ elarg l)]
-         $ checkify (instantiate sc [Var (Free x)]) (NormalTerm (In Type))
-       let t' = funH plic n elarg elbody
-       SubstitutedTerm subt' <- substitute t'
-       return (ElaboratedTerm subt', In Type)
-inferify (In (Lam _ _))
-  = throwError "Cannot infer the type of a lambda expression."
-inferify (In (App plic f0 a0))
-  = do let f = instantiate0 f0
-           a = instantiate0 a0
-       (ElaboratedTerm elf,t) <- inferify f
-       subt <- substitute t
-       NormalTerm et <- evaluate subt
-       (app',t') <- inferifyApplication elf et plic a
-       SubstitutedTerm subapp' <- substitute app'
-       SubstitutedTerm subt' <- substitute t'
-       return (ElaboratedTerm subapp', subt')
+inferify (In Type) =
+  return (ElaboratedTerm (In Type), In Type)
+inferify (In Str) =
+  return (ElaboratedTerm (In Str), In Type)
+inferify (In (MkStr s)) =
+  return (ElaboratedTerm (In (MkStr s)), In Str)
+inferify (In (Fun plic arg0 sc)) =
+  do let arg = instantiate0 arg0
+     ElaboratedTerm elarg <- checkify arg (NormalTerm (In Type))
+     [x@(FreeVar n)] <- freshRelTo (names sc) context
+     l <- getElab quoteLevel
+     ElaboratedTerm elbody <- extendElab context [(x, QLJ elarg l)]
+       $ checkify (instantiate sc [Var (Free x)]) (NormalTerm (In Type))
+     let t' = funH plic n elarg elbody
+     SubstitutedTerm subt' <- substitute t'
+     return (ElaboratedTerm subt', In Type)
+inferify (In (Lam _ _)) =
+  throwError "Cannot infer the type of a lambda expression."
+inferify (In (App plic f0 a0)) =
+  do let f = instantiate0 f0
+         a = instantiate0 a0
+     (ElaboratedTerm elf,t) <- inferify f
+     subt <- substitute t
+     NormalTerm et <- evaluate subt
+     (app',t') <- inferifyApplication elf et plic a
+     SubstitutedTerm subapp' <- substitute app'
+     SubstitutedTerm subt' <- substitute t'
+     return (ElaboratedTerm subapp', subt')
 inferify (In (Con c ms0)) =
   do (ec, ConSig plics (BindingTelescope ascs bsc)) <- typeInSignature c
      let ts = zip plics ascs

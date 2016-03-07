@@ -40,7 +40,7 @@ languageDef = Token.LanguageDef
                                       ,"opening","as","using","hiding"
                                       ,"renaming","to","Rec","Quoted"
                                       ,"continue","shift","reset","from","in"
-                                      ,"require"
+                                      ,"require","String"
                                       ]
               , Token.reservedOpNames = ["|","||","->","\\",":","::","=",".","`","~"]
               , Token.caseSensitive = True
@@ -54,6 +54,7 @@ reservedOp = Token.reservedOp tokenParser
 parens = Token.parens tokenParser
 braces = Token.braces tokenParser
 symbol = Token.symbol tokenParser
+stringLiteral = Token.stringLiteral tokenParser
 
 
 
@@ -90,7 +91,7 @@ recordProj = do (m,f) <- try $ do
                   varName
                 return $ foldl' recordProjH m (f:fieldNames)
 
-recProjArg = recordType <|> recordCon <|> dottedName <|> variable <|> parenTerm <|> typeType
+recProjArg = recordType <|> recordCon <|> dottedName <|> variable <|> parenTerm <|> typeType <|> stringType <|> stringVal
 
 dottedThings = recordProj <|> dottedName
 
@@ -103,6 +104,12 @@ annotation = do m <- try $ do
 
 typeType = do _ <- reserved "Type"
               return $ In Type
+
+stringType = do _ <- reserved "String"
+                return $ In Str
+
+stringVal = do s <- stringLiteral
+               return $ In (MkStr s)
 
 explFunType = do (xs,arg) <- try $ do
                    (xs,arg) <- parens $ do
@@ -206,7 +213,7 @@ implConPatternArg = do (xs,p) <- braces $ rawImplConPatternArg
 
 conPatternArg = explConPatternArg <|> implConPatternArg
 
-assertionPatternArg = parenTerm <|> noArgConData <|> variable <|> typeType
+assertionPatternArg = parenTerm <|> noArgConData <|> variable <|> typeType <|> stringType <|> stringVal
 
 pattern = assertionPattern <|> parenPattern <|> conPattern <|> varPattern
 
@@ -326,61 +333,61 @@ require = do _ <- try $ reserved "require"
 
 parenTerm = parens term
 
-annLeft = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+annLeft = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-annRight = funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+annRight = funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-funArg = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+funArg = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-funRet = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+funRet = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-lamBody = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+lamBody = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-appFun = dottedThings <|> parenTerm <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+appFun = dottedThings <|> parenTerm <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-rawExplAppArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+rawExplAppArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
 explAppArg = do m <- rawExplAppArg
                 return (Expl,m)
 
-rawImplAppArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+rawImplAppArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
 implAppArg = do m <- braces $ rawImplAppArg
                 return (Impl,m)
 
 appArg = explAppArg <|> implAppArg
 
-rawExplConArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+rawExplConArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
 explConArg = do m <- rawExplConArg
                 return (Expl,m)
 
-rawImplConArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+rawImplConArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
 implConArg = do m <- braces $ rawImplConArg
                 return (Impl,m)
 
 conArg = explConArg <|> implConArg
 
-caseArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+caseArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-quotedTypeArg = dottedThings <|> parenTerm <|> noArgConData <|> variable <|> typeType <|> quote <|> unquote <|> recordType <|> recordCon
+quotedTypeArg = dottedThings <|> parenTerm <|> noArgConData <|> variable <|> typeType <|> stringType <|> stringVal <|> quote <|> unquote <|> recordType <|> recordCon
 
-quoteArg = dottedThings <|> parenTerm <|> noArgConData <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+quoteArg = dottedThings <|> parenTerm <|> noArgConData <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-unquoteArg = dottedThings <|> parenTerm <|> noArgConData <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+unquoteArg = dottedThings <|> parenTerm <|> noArgConData <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-continueArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> recordType <|> recordCon
+continueArg = dottedThings <|> parenTerm <|> noArgConData <|> quote <|> unquote <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-shiftArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+shiftArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-resetArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+resetArg = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-requireType = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+requireType = application <|> continue <|> dottedThings <|> parenTerm <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-requireBody = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+requireBody = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
-term = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> recordType <|> recordCon
+term = annotation <|> funType <|> application <|> continue <|> dottedThings <|> parenTerm <|> lambda <|> shift <|> reset <|> require <|> conData <|> quotedType <|> quote <|> unquote <|> caseExp <|> variable <|> typeType <|> stringType <|> stringVal <|> recordType <|> recordCon
 
 parseTerm str = case parse (spaces *> term <* eof) "(unknown)" str of
                   Left e -> Left (show e)

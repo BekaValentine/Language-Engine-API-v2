@@ -8,4 +8,4 @@ module Golem.Utils.Plicity where
 
 
 data Plicity = Expl | Impl
-  deriving (Eq,Show)
+  deriving (Show,Eq,Ord)

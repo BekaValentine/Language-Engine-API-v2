@@ -88,7 +88,7 @@ data Variable
   = Free FreeVar
   | Bound String BoundVar
   | Meta MetaVar
-  deriving (Show)
+  deriving (Show,Ord)
 
 
 -- | The name of a variable.
@@ -619,6 +619,27 @@ instance Eq1 f => Eq (ABT f) where
 instance Eq1 f => Eq (Scope f) where
   Scope ns _ x == Scope ns' _ y =
     length ns == length ns' && x == y
+
+
+
+
+
+
+-- * Ordering
+
+
+instance Ord1 f => Ord (ABT f) where
+  compare (Var x) (Var y) = compare x y
+  compare (Var _) (In _) = LT
+  compare (In x) (In y) = compare1 x y
+  compare (In _) (Var _) = GT
+
+
+instance Ord1 f => Ord (Scope f) where
+  compare (Scope ns _ x) (Scope ns' _ y) =
+    case compare ns ns' of
+      EQ -> compare x y
+      c  -> c
 
 
 

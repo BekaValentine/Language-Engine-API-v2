@@ -26,7 +26,7 @@ data Name
   = BareLocal String
   | DottedLocal String String
   | Absolute String String
-  deriving (Show,Eq)
+  deriving (Show,Eq,Ord)
 
 
 showName :: Name -> String

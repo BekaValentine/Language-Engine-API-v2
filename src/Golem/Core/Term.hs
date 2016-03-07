@@ -29,6 +29,7 @@ import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Functor.Classes
+import Data.Functor.Compose
 import Data.List (intercalate)
 
 
@@ -72,6 +73,8 @@ instance Eq1 TermF where
     m == m' && t == t'
   eq1 Str Str =
     True
+  eq1 (MkStr s) (MkStr s') =
+    s == s'
   eq1 Type Type =
     True
   eq1 (Fun plic a sc) (Fun plic' a' sc') =
@@ -110,6 +113,78 @@ instance Eq1 TermF where
     False
 
 
+data TermFConName
+  = DEFINED | ANN | STR | MKSTR | TYPE | FUN | LAM | APP | CON | CASE
+  | RECORDTYPE | RECORDCON | RECORDPROJ | QUOTEDTYPE | QUOTE | UNQUOTE
+  | CONTINUE | SHIFT | RESET | REQUIRE
+  deriving (Eq,Ord)
+
+instance Ord1 TermF where
+  compare1 (Defined x) (Defined x') =
+    compare x x'
+  compare1 (Ann m t) (Ann m' t') =
+    compare m m' `mappend` compare t t'
+  compare1 Str Str = EQ
+  compare1 (MkStr s) (MkStr s') =
+    compare s s'
+  compare1 Type Type = EQ
+  compare1 (Fun plic a b) (Fun plic' a' b') =
+    compare plic plic' `mappend` compare a a' `mappend` compare b b'
+  compare1 (Lam plic m) (Lam plic' m') =
+    compare plic plic' `mappend` compare m m'
+  compare1 (App plic f x) (App plic' f' x') =
+    compare plic plic' `mappend` compare f f' `mappend` compare x x'
+  compare1 (Con c ms) (Con c' ms') =
+    compare c c' `mappend` compare ms ms'
+  compare1 (Case ms mot cls) (Case ms' mot' cls') =
+    compare ms ms' `mappend`
+    compare1 mot mot' `mappend`
+    compare1 (Compose cls) (Compose cls')
+  compare1 (RecordType fs as) (RecordType fs' as') =
+    compare fs fs' `mappend` compare1 as as'
+  compare1 (RecordCon fields) (RecordCon fields') =
+    compare fields fields'
+  compare1 (RecordProj m x) (RecordProj m' x') =
+    compare x x' `mappend` compare m m'
+  compare1 (QuotedType rs a) (QuotedType rs' a') =
+    compare rs rs' `mappend` compare a a'
+  compare1 (Quote m) (Quote m') =
+    compare m m'
+  compare1 (Unquote m) (Unquote m') =
+    compare m m'
+  compare1 (Continue m) (Continue m') =
+    compare m m'
+  compare1 (Shift r m) (Shift r' m') =
+    compare r r' `mappend` compare m m'
+  compare1 (Reset r m) (Reset r' m') =
+    compare r r' `mappend` compare m m'
+  compare1 (Require a m) (Require a' m') =
+    compare a a' `mappend` compare m m'
+  compare1 x y = compare (conName x) (conName y)
+    where
+      conName :: TermF a -> TermFConName
+      conName (Defined _) = DEFINED
+      conName (Ann _ _) = ANN
+      conName Str = STR
+      conName (MkStr _) = MKSTR
+      conName Type = TYPE
+      conName (Fun _ _ _) = FUN
+      conName (Lam _ _) = LAM
+      conName (App _ _ _) = APP
+      conName (Con _ _) = CON
+      conName (Case _ _ _) = CASE
+      conName (RecordType _ _) = RECORDTYPE
+      conName (RecordCon _) = RECORDCON
+      conName (RecordProj _ _) = RECORDPROJ
+      conName (QuotedType _ _) = QUOTEDTYPE
+      conName (Quote _) = QUOTE
+      conName (Unquote _) = UNQUOTE
+      conName (Continue _) = CONTINUE
+      conName (Shift _ _) = SHIFT
+      conName (Reset _ _) = RESET
+      conName (Require _ _) = REQUIRE
+
+
 type Term = ABT TermF
 
 
@@ -132,6 +207,11 @@ instance Eq1 CaseMotiveF where
     eq1 tele tele'
 
 
+instance Ord1 CaseMotiveF where
+  compare1 (CaseMotive tele) (CaseMotive tele') =
+    compare1 tele tele'
+
+
 type CaseMotive = CaseMotiveF (Scope TermF)
 
 
@@ -145,6 +225,11 @@ instance Eq1 ClauseF where
     length ps == length ps'
       && all (uncurry eq1) (zip ps ps')
       && sc == sc'
+
+
+instance Ord1 ClauseF where
+  compare1 (Clause ps sc) (Clause ps' sc') =
+    compare1 (Compose ps) (Compose ps') `mappend` compare sc sc'
 
 
 type Clause = ClauseF (Scope TermF)
@@ -186,6 +271,18 @@ instance Eq a => Eq1 (PatternFF a) where
     False
 
 
+instance Ord a => Ord1 (PatternFF a) where
+  compare1 (ConPat c ps) (ConPat c' ps') =
+    compare c c' `mappend` compare ps ps'
+  compare1 (ConPat _ _) _ = LT
+  compare1 (AssertionPat _) (ConPat _ _) = GT
+  compare1 (AssertionPat m) (AssertionPat m') =
+    compare m m'
+  compare1 (AssertionPat _) _ = LT
+  compare1 MakeMeta MakeMeta = EQ
+  compare1 MakeMeta _ = GT
+
+
 instance Bifunctor PatternFF where
   bimap _ g (ConPat s xs) = ConPat s [ (plic,g x) | (plic,x) <- xs ]
   bimap f _ (AssertionPat x) = AssertionPat (f x)
@@ -214,6 +311,10 @@ instance Bizippable PatternFF where
 
 
 instance Bitraversable PatternFF where
+  -- Older versions of bifunctors required either @bitraverse@ or
+  -- @bisequenceA@ for a minimal definition, but since v5.1 this doesn't seem
+  -- to be the case. I've left the implementation for @bisequenceA@ intact
+  -- but commented out just in case.
   {-
   bisequenceA (ConPat c ps) =
     ConPat c <$> sequenceA [ (,) plic <$> p
@@ -236,6 +337,10 @@ newtype PatternF a = PatternF { unwrapPatternF :: Scope (PatternFF a) }
 
 instance Eq1 PatternF where
   eq1 (PatternF x) (PatternF x') = x == x'
+
+
+instance Ord1 PatternF where
+  compare1 (PatternF x) (PatternF x') = compare x x'
 
 
 type Pattern = ABT (PatternFF Term)
@@ -301,9 +406,6 @@ patternBody (PatternF sc) = translate (first body) (body sc)
 
 annH :: Term -> Term -> Term
 annH m t = In (Ann (scope [] m) (scope [] t))
-
-strH :: String -> Term
-strH s = In (MkStr s)
 
 funH :: Plicity -> String -> Term -> Term -> Term
 funH plic x a b = In (Fun plic (scope [] a) (scope [x] b))

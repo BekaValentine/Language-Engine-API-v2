@@ -3,7 +3,7 @@
 
 -- | This module defines the Charted chart parser.
 
-module Parsing.Charted
+module Charted.Charted
        ( Rule
        , Grammar
        , Lexer
