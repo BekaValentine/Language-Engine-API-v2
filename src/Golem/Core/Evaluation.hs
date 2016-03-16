@@ -235,6 +235,12 @@ instance ParamEval Int (Env EnvKey Term) Term where
     do ea <- underF (paramEval l) a
        esc <- underF (paramEval l) sc
        return $ In (Require ea esc)
+  paramEval l (In (External i a)) =
+    do ea <- underF (paramEval l) a
+       return $ In (External i ea)
+  paramEval l (In (Postulate a)) =
+    do ea <- underF (paramEval l) a
+       return $ In (Postulate ea)
       
 
 

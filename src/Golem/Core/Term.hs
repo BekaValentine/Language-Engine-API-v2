@@ -41,6 +41,18 @@ import Data.List (intercalate)
 -- | Terms in this variant are the same as the Modular variant, except that
 -- we also now have terms for record types, record terms, and record
 -- projection.
+--
+-- The term @External n a@ is used to represent references to proof-system
+-- external evidence, identified by the integer @n@. That is to say, if we
+-- have @External n a@, then we're trusting that there is some mechanism in
+-- the host system to provide @a@-like behavior, using @n@ to locate it.
+--
+-- Similarly, @Postulate a@ is used to represent proof-system external axioms
+-- which ought to have no real behavior other than to exist.
+--
+-- Neither @External@ nor @Postulate@ should be accessible to the user, they
+-- exist entirely to permit linking up with non-Golem systems and form a kind
+-- of FFI for the language.
 
 data TermF r
   = Defined Name
@@ -63,6 +75,8 @@ data TermF r
   | Shift String r
   | Reset String r
   | Require r r
+  | External Int r
+  | Postulate r
   deriving (Functor,Foldable,Traversable)
 
 
@@ -109,6 +123,10 @@ instance Eq1 TermF where
     res == res' && m == m'
   eq1 (Require a sc) (Require a' sc') =
     a == a' && sc == sc'
+  eq1 (External i a) (External i' a') =
+    i == i' && a == a'
+  eq1 (Postulate a) (Postulate a') =
+    a == a'
   eq1 _ _ =
     False
 
@@ -117,6 +135,7 @@ data TermFConName
   = DEFINED | ANN | STR | MKSTR | TYPE | FUN | LAM | APP | CON | CASE
   | RECORDTYPE | RECORDCON | RECORDPROJ | QUOTEDTYPE | QUOTE | UNQUOTE
   | CONTINUE | SHIFT | RESET | REQUIRE
+  | EXTERNAL | POSTULATE
   deriving (Eq,Ord)
 
 instance Ord1 TermF where
@@ -160,6 +179,10 @@ instance Ord1 TermF where
     compare r r' `mappend` compare m m'
   compare1 (Require a m) (Require a' m') =
     compare a a' `mappend` compare m m'
+  compare1 (External i a) (External i' a') =
+    compare i i' `mappend` compare a a'
+  compare1 (Postulate a) (Postulate a') =
+    compare a a'
   compare1 x y = compare (conName x) (conName y)
     where
       conName :: TermF a -> TermFConName
@@ -183,6 +206,8 @@ instance Ord1 TermF where
       conName (Shift _ _) = SHIFT
       conName (Reset _ _) = RESET
       conName (Require _ _) = REQUIRE
+      conName (External _ _) = EXTERNAL
+      conName (Postulate _) = POSTULATE
 
 
 type Term = ABT TermF
@@ -466,6 +491,12 @@ resetH res m = In (Reset res (scope [] m))
 requireH :: String -> Term -> Term -> Term
 requireH x a m = In (Require (scope [] a) (scope [x] m))
 
+externalH :: Int -> Term -> Term
+externalH i a = In (External i (scope [] a))
+
+postulateH :: Term -> Term
+postulateH a = In (Postulate (scope [] a))
+
 
 
 
@@ -612,6 +643,18 @@ instance Parens Term where
     ,MotiveRet,ClauseBody,RecFieldType,RecFieldVal,ShiftArg,ResetArg
     ,RequireType,RequireBody
     ]
+  parenLoc (In (External _ _)) =
+    [AnnTerm,AnnType,FunArg,FunRet,LamBody,AppFun,AppArg Expl,AppArg Impl
+    ,ConArg Expl,ConArg Impl,CaseArg,MotiveArg,MotiveRet,ClauseBody
+    ,AssertionPatArg,RecFieldType,RecFieldVal,RecProjArg,QuotedTypeArg
+    ,QuoteArg,UnquoteArg,ContinueArg,ShiftArg,ResetArg,RequireType,RequireBody
+    ]
+  parenLoc (In (Postulate _)) =
+    [AnnTerm,AnnType,FunArg,FunRet,LamBody,AppFun,AppArg Expl,AppArg Impl
+    ,ConArg Expl,ConArg Impl,CaseArg,MotiveArg,MotiveRet,ClauseBody
+    ,AssertionPatArg,RecFieldType,RecFieldVal,RecProjArg,QuotedTypeArg
+    ,QuoteArg,UnquoteArg,ContinueArg,ShiftArg,ResetArg,RequireType,RequireBody
+    ]
   
   parenRec (Var v) =
     name v
@@ -718,6 +761,11 @@ instance Parens Term where
     "require " ++ head (names sc) ++ " : "
       ++ parenthesize (Just RequireType) (instantiate0 a)
       ++ " in " ++ parenthesize (Just RequireBody) (body sc)
+  parenRec (In (External i a)) =
+    "<external " ++ show i ++ " : "
+      ++ parenthesize Nothing (instantiate0 a) ++ " >"
+  parenRec (In (Postulate a)) =
+    "<postulate " ++ parenthesize Nothing (instantiate0 a) ++ " >"
 
 
 

@@ -179,6 +179,11 @@ instance MonadUnify TermF Elaborator where
        return [ Equation (instantiate0 a1) (instantiate0 a2)
               , Equation (instantiate sc1 xs) (instantiate sc2 xs)
               ]
+  equate (External i a1) (External j a2) =
+    do guard (i == j)
+       return [ Equation (instantiate0 a1) (instantiate0 a2) ]
+  equate (Postulate a1) (Postulate a2) =
+    return [ Equation (instantiate0 a1) (instantiate0 a2) ]
   equate l r =
     throwError $ "Cannot unify " ++ pretty (In l) ++ " with " ++ pretty (In r)
 

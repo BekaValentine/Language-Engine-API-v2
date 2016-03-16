@@ -507,6 +507,12 @@ inferify (In (Reset res m)) =
      return (ElaboratedTerm (resetH res elm), upper)
 inferify (In (Require _ _)) =
   throwError "Cannot infer the type of a require term."
+inferify (In (External i a)) =
+  do ElaboratedTerm ea <- checkify (instantiate0 a) (NormalTerm (In Type))
+     return (ElaboratedTerm (externalH i ea), ea)
+inferify (In (Postulate a)) =
+  do ElaboratedTerm ea <- checkify (instantiate0 a) (NormalTerm (In Type))
+     return (ElaboratedTerm (postulateH ea), ea)
 
 
 
