@@ -14,8 +14,10 @@ import Golem.Utils.Names
 import Golem.Utils.Plicity
 import Golem.Utils.Unifier
 import Golem.Utils.Vars
+import Golem.Core.Parser
 import Golem.Core.Term
 import Golem.Unification.Elaborator
+import Golem.Unification.Elaboration
 import Golem.Unification.Unification ()
 
 import Control.Applicative
@@ -36,6 +38,8 @@ data LEWord
     , category :: Term
     , meaning :: Term
     }
+
+
 
 
 
@@ -76,6 +80,8 @@ data LERule
 
 
 
+
+
 -- | We can convert a term to an @LERule@. We throw a Haskell error when the
 -- term isn't a rule b/c we should have filtered to use only actual rules.
 
@@ -108,11 +114,15 @@ isWordType _ = False
 
 
 
+
+
 -- | We can test if a definition is a rule by checking its type.
 
 isRuleType :: Term -> Bool
 isRuleType (In (Con (Absolute "LE" "Rule") _)) = True
 isRuleType _ = False
+
+
 
 
 
@@ -138,6 +148,7 @@ convertWordsToLexer wds fm0 =
   do LEWord fm cat sem <- wds
      guard (fm == fm0)
      return (sem,cat)
+
 
 
 
@@ -198,6 +209,7 @@ convertLERuleToChartedRule (LERule rty rsem) =
 
 
 
+
 -- | We can convert a bunch of rules to a grammar.
 
 convertRulesToGrammar :: [LERule] -> Grammar Term Term
@@ -206,10 +218,14 @@ convertRulesToGrammar = map convertLERuleToChartedRule
 
 
 
--- | Extracting rules composes filtering and conversion.
 
-extractWordsAndRules :: Definitions -> (Lexer Term Term, Grammar Term Term)
-extractWordsAndRules defs =
-  (convertWordsToLexer wds, convertRulesToGrammar rls)
-  where
-    (wds,rls) = filterWordsAndRules defs
+-- | The full extraction for a program involves parsing, elaborating, then
+-- extracting the words and rules.
+
+extract :: String -> Either String (Definitions,[LEWord],[LERule])
+extract src =
+  do prog <- parseProgram src
+     (_,ElabState _ defs _ _ _ _ _ _ _ _ _ _ _ _) <-
+       runElaborator0 (elabProgram prog)
+     let (wds,rles) = filterWordsAndRules defs
+     return (defs,wds,rles)
