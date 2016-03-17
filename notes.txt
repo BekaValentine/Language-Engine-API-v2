@@ -1,0 +1,10 @@
+figure out why parsing is so slow
+  hypothesis: lots of identical prefixes
+
+
+RESOLVED
+  problems with quotes and shifts
+
+UNRESOLVED
+  nested records with the same field name are causing problems
+    seems to be in the binding for telescopes????? but only after evaluation????

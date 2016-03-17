@@ -1,11 +1,34 @@
 module LE where
   
+  {-
+  data Unit where MkUnit : Unit end
+  data Unit2 where MkUnit2 : Unit2 end
   
+  data Rel (x : Unit) (y : Unit2) where MkRel {x : Unit} {y : Unit2} : Rel x y end
+  
+  let exists : (a : Type) -> (a -> Type) -> Type where
+    | exists a p = Rec { witness : a, proof : p witness }
+  end
+  
+  let foo : Type where
+    | foo = exists Unit (\x -> exists Unit2 (\y -> Rel x y))
+  end
+  
+  let bar : foo where
+    | bar = { witness = MkUnit, proof = { witness = MkUnit2, proof = MkRel } }
+  end
+  --}
+  
+  --{-
   
   
   -- These are the core types used in LE projects
   
   data Entity end
+  
+  data Background (e : Entity) end
+  
+  data Nonexistant (e : Entity) end
   
   data family Predicate end
   
@@ -26,12 +49,12 @@ module LE where
   
   -- These are some utility types that make things easier
   
-  data Ex (p : Entity -> Type) where
-    | MkEx {p : Entity -> Type} (witness : Entity) (proof : p witness) : Ex p
+  let exists : (Entity -> Type) -> Type where
+    | exists p = Rec { witness : Entity, proof : p witness }
   end
   
-  data And (a b : Type) where
-    | MkAnd {a b : Type} (fst : a) (snd : b) : And a b
+  let and : Type -> Type -> Type where
+    | and p q = Rec { fst : p, snd : q }
   end
   
   
@@ -43,6 +66,14 @@ module LE where
   data family Category end
   
   let family interpCat (c : Category) : Type end
+  
+  data instance Category where
+    | Expression : Category
+  end
+  
+  let instance interpCat where
+    | interpCat Expression = Quoted Type
+  end
   
   
   
@@ -103,28 +134,26 @@ module LE where
   
   
   
+  reset qr from Entity to Type end
   
   -- This is a demo of categories and interpretation thereof.
   
-  data Num where
-    | Sg : Num
-    | Pl : Num
-  end
-  
   data instance Category where
+    | EXP : Category
     | S : Category
-    | N (num : Num) : Category
     | NP : Category
-    | Un (x y : Category) : Category
-    | Ov (x y : Category) : Category
+    | D : Category
+    | N : Category
+    | VP : Category
   end
   
   let instance interpCat where
-    | interpCat S = Entity -> Type
-    | interpCat (N _) = Entity -> Type
-    | interpCat NP = Entity
-    | interpCat (Un x y) = interpCat x -> interpCat y
-    | interpCat (Ov x y) = interpCat y -> interpCat x
+    | interpCat EXP = Quoted Type
+    | interpCat S = Quoted[qr] (Entity -> Type)
+    | interpCat NP = Quoted[qr] Entity
+    | interpCat D = Quoted[qr] (Entity -> Type) -> Quoted[qr] Entity
+    | interpCat N = Quoted[qr] (Entity -> Type)
+    | interpCat VP = Quoted[qr] (Entity -> Entity -> Type)
   end
   
   
@@ -136,11 +165,23 @@ module LE where
   
   let r : Rule where
     | r = MkRule
-          { ruleType = QRForall Category (\x ->
-                         QRForall Category (\y ->
-                           QRDone (RArg x (RArg (Un x y) (RDone y)))))
-          , ruleMeaning = \x f -> f x
+          { ruleType = QRDone (RArg NP (RArg VP (RDone S)))
+          , ruleMeaning = \x f -> `(~f ~x)
           }
+  end
+  
+  let r2 : Rule where
+    | r2 = MkRule
+           { ruleType = QRDone (RArg D (RArg N (RDone NP)))
+           , ruleMeaning = \f x -> f x
+           }
+  end
+  
+  let r3 : Rule where
+    | r3 = MkRule
+           { ruleType = QRDone (RArg S (RDone EXP))
+           , ruleMeaning = \p -> `(reset qr in exists (\e -> ~p e))
+           }
   end
   
   
@@ -151,8 +192,8 @@ module LE where
   -- This is a demo of defining predicates.
   
   data instance Predicate where
-    | Dog : Predicate
     | Bark : Predicate
+    | Dog : Predicate
   end
   
   
@@ -161,16 +202,45 @@ module LE where
   
   -- This is a demo of defining words.
   
-  let dog0 : Word where
-    | dog0 =
+  let a : Word where
+    | a =
+       MkWord
+       { form = "a"
+       , category = D
+       , meaning = \p -> `(shift qr in exists (\x -> and (~p x) (continue x)))
+       }
+  end
+  
+  let dog : Word where
+    | dog =
+       MkWord
+       { form = "dog"
+       , category = N
+       , meaning = `(\x -> Pred Dog x)
+       }
+  end
+  
+  let it : Word where
+    | it =
         MkWord
-        { form = "dog"
-        , category = N Sg
-        , meaning = \x -> Ex (\e -> And (Pred Dog e) (Rel Exp e x))
+        { form = "it"
+        , category = NP
+        , meaning = `(require x : Entity in x)
         }
   end
   
+  let barked : Word where
+    | barked =
+        MkWord
+        { form = "barked"
+        , category = VP
+        , meaning = `(\x e -> and (Pred Bark e)
+                                  (Rel Subj e x))
+        }
+  end
+  --}
   
+  {-
   
   
   -- This is a demo of defining custom word-building helper functions.
@@ -180,7 +250,7 @@ module LE where
         MkWord
         { form = s
         , category = N Sg
-        , meaning = \x -> Ex (\e -> And (Pred p e) (Rel Exp e x))
+        , meaning = \x -> exists (\e -> and (Pred p e) (Rel Exp e x))
         }
   end
   
@@ -188,5 +258,7 @@ module LE where
   let dog1 : Word where
     | dog1 = nounSg "dog" Dog
   end
+  
+  --}  
   
 end

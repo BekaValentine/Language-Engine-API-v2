@@ -17,13 +17,20 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Golem.Core.Decontinuization,
-                       Golem.Core.RequireSolving,
-                       Golem.Unification.REPL,
-                       Parsing.Charted
+  exposed-modules:     APIUtils.EntityBuilding,
+                       APIUtils.GrammarExtraction,
+                       Charted.Charted,
+                       Golem.Core.Decontinuization
+                       Golem.Unification.REPL
+                       
+                       -- Golem.Core.RequireSolving,
+                       -- Golem.Unification.REPL,
+                       -- Charted.Charted
+                       -- APIUtils.GrammarExtraction
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base,
+                       aeson,
                        bifunctors,
                        containers,
                        free,
