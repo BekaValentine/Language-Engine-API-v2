@@ -13,9 +13,6 @@
 
 module APIUtils.EntityBuilding where
 
-import Debug
-import Golem.Utils.Pretty
-
 import APIUtils.WorldModel
 import Golem.Core.RequireSolving (compose)
 import Golem.Core.Term
@@ -42,7 +39,7 @@ data EntityDescription
   | RelDesc String Entity Entity
   | UnaryDesc String Entity
   | BinaryStringDesc String Entity String
-  deriving (Generic)
+  deriving (Show,Generic)
 
 instance ToJSON EntityDescription
 
@@ -54,6 +51,17 @@ instance ToJSON EntityDescription
 -- list of 'EntityDescription's as state..
 
 type Construction = StateT (WorldModel,[EntityDescription]) Maybe
+
+
+
+
+
+-- | We can assert an entity description by adding it to the state.
+
+assertDescription :: EntityDescription -> Construction ()
+assertDescription desc =
+  do (wm,descs) <- get
+     put (wm,desc:descs)
 
 
 
@@ -75,16 +83,6 @@ liftWorldUpdate wu =
 
 
 
-leCon :: [String]
-leCon =
-  [ "Pred"
-  , "Rel"
-  , "Background"
-  , "Nonexistant"
-  , "StringVal"
-  ]
-  
-
 -- | We can construct a proof of a type, modifying a world state, provided
 -- that the type is a function type, a record type, or a 'Pred' or 'Rel' type
 -- condata type. Doing so will yield some 'EntityDescription's.
@@ -105,21 +103,44 @@ makeTrue wm fact0 =
     go _ (In (Con (Absolute "LE" "Entity") [])) =
       do ent <- liftWorldUpdate newEntity
          return (externalH ent (conH (Absolute "LE" "Entity") []))
-    go _ fact@(In (Con (Absolute "LE" c) _)) | c `elem` leCon =
-      do liftWorldUpdate (assertFact fact)
+    go _ fact@(In (Con (Absolute "LE" "Pred") [(_,psc),(_,esc)])) =
+      do In (Con (Absolute "LE" p) []) <- return (instantiate0 psc)
+         In (External e _) <- return (instantiate0 esc)
+         liftWorldUpdate (assertFact fact)
+         assertDescription (PredDesc p e)
+         return (postulateH fact)
+    go _ fact@(In (Con (Absolute "LE" "Rel") [(_,rsc),(_,esc),(_,xsc)])) =
+      do In (Con (Absolute "LE" r) []) <- return (instantiate0 rsc)
+         In (External e _) <- return (instantiate0 esc)
+         In (External x _) <- return (instantiate0 xsc)
+         liftWorldUpdate (assertFact fact)
+         assertDescription (RelDesc r e x)
+         return (postulateH fact)
+    go _ fact@(In (Con (Absolute "LE" "Background") [(_,esc)])) =
+      do In (External e _) <- return (instantiate0 esc)
+         liftWorldUpdate (assertFact fact)
+         assertDescription (UnaryDesc "Background" e)
+         return (postulateH fact)
+    go _ fact@(In (Con (Absolute "LE" "Nonexistant") [(_,esc)])) =
+      do In (External e _) <- return (instantiate0 esc)
+         liftWorldUpdate (assertFact fact)
+         assertDescription (UnaryDesc "Nonexistant" e)
+         return (postulateH fact)
+    go _ fact@(In (Con (Absolute "LE" "StringVal") [(_,esc),(_,strsc)])) =
+      do In (External e _) <- return (instantiate0 esc)
+         In (MkStr s) <- return (instantiate0 strsc)
+         liftWorldUpdate (assertFact fact)
+         assertDescription (BinaryStringDesc "StringVal" e s)
          return (postulateH fact)
     go fcts (In (RecordType fs (Telescope ascs0))) =
-      do debug_ (pretty (In (RecordType fs (Telescope ascs0))))
-         xs <- goTele fcts [] ascs0
+      do xs <- goTele fcts [] ascs0
          return (recordConH (zip fs xs))
     go _ _ = empty
     
     goTele :: [(Term,Term)] -> [Term] -> [Scope TermF] -> Construction [Term]
-    goTele _ acc [] =
-      do debug_ (unlines (map pretty acc))
-         return []
+    goTele _ _ [] =
+      return []
     goTele fcts acc (asc:ascs) =
-      do debug_ (unlines (map pretty acc))
-         x <- go fcts (instantiate asc acc)
+      do x <- go fcts (instantiate asc acc)
          xs <- goTele fcts (acc ++ [x]) ascs
          return (x:xs)
