@@ -10,6 +10,7 @@ module APIUtils.GrammarExtraction where
 import Charted.Charted
 import Golem.Utils.ABT
 import Golem.Utils.Elaborator
+import Golem.Utils.Env
 import Golem.Utils.Names
 import Golem.Utils.Plicity
 import Golem.Utils.Unifier
@@ -222,10 +223,13 @@ convertRulesToGrammar = map convertLERuleToChartedRule
 -- | The full extraction for a program involves parsing, elaborating, then
 -- extracting the words and rules.
 
-extract :: String -> Either String (Definitions,[LEWord],[LERule])
+extract :: String -> Either String ( Env (String,String) Term
+                                   , [LEWord]
+                                   , [LERule]
+                                   )
 extract src =
   do prog <- parseProgram src
      (_,ElabState _ defs _ _ _ _ _ _ _ _ _ _ _ _) <-
        runElaborator0 (elabProgram prog)
      let (wds,rles) = filterWordsAndRules defs
-     return (defs,wds,rles)
+     return (definitionsToEnvironment defs,wds,rles)
