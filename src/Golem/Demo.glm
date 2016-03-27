@@ -1,27 +1,5 @@
 module LE where
   
-  {-
-  data Unit where MkUnit : Unit end
-  data Unit2 where MkUnit2 : Unit2 end
-  
-  data Rel (x : Unit) (y : Unit2) where MkRel {x : Unit} {y : Unit2} : Rel x y end
-  
-  let exists : (a : Type) -> (a -> Type) -> Type where
-    | exists a p = Rec { witness : a, proof : p witness }
-  end
-  
-  let foo : Type where
-    | foo = exists Unit (\x -> exists Unit2 (\y -> Rel x y))
-  end
-  
-  let bar : foo where
-    | bar = { witness = MkUnit, proof = { witness = MkUnit2, proof = MkRel } }
-  end
-  --}
-  
-  --{-
-  
-  
   -- These are the core types used in LE projects
   
   data Entity end
@@ -68,11 +46,11 @@ module LE where
   let family interpCat (c : Category) : Type end
   
   data instance Category where
-    | Expression : Category
+    | EXP : Category
   end
   
   let instance interpCat where
-    | interpCat Expression = Quoted Type
+    | interpCat EXP = Quoted Type
   end
   
   
@@ -139,7 +117,6 @@ module LE where
   -- This is a demo of categories and interpretation thereof.
   
   data instance Category where
-    | EXP : Category
     | S : Category
     | NP : Category
     | D : Category
@@ -148,7 +125,6 @@ module LE where
   end
   
   let instance interpCat where
-    | interpCat EXP = Quoted Type
     | interpCat S = Quoted[qr] (Entity -> Type)
     | interpCat NP = Quoted[qr] Entity
     | interpCat D = Quoted[qr] (Entity -> Type) -> Quoted[qr] Entity
@@ -161,7 +137,9 @@ module LE where
   
   
   
-  -- This is a demo of defining rules.
+  -- This is a demo of defining rules. There's going to be some syntactic
+  -- sugar for this, so that this rule can be written with
+  --   ruleType = NP -o VP -o S
   
   let r : Rule where
     | r = MkRule
@@ -238,6 +216,9 @@ module LE where
                                   (Rel Subj e x))
         }
   end
+  
+  
+  
   --}
   
   {-
