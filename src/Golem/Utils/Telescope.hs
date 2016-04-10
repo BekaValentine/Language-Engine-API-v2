@@ -17,6 +17,8 @@ module Golem.Utils.Telescope where
 import Golem.Utils.ABT
 import Golem.Utils.Vars
 
+import Control.Monad
+import Data.Binary
 import Data.Functor.Classes
 import Data.List (inits)
 
@@ -29,7 +31,7 @@ import Data.List (inits)
 -- | A telescope is a series of binders. This is used for constructions that
 -- have iterated binding with no ultimate scope, such as record types.
 
-data Telescope a
+newtype Telescope a
   = Telescope [a]
   deriving (Functor,Foldable,Traversable)
 
@@ -40,6 +42,11 @@ instance Eq1 Telescope where
 
 instance Ord1 Telescope where
   compare1 (Telescope as) (Telescope as') = compare as as'
+
+
+instance Binary r => Binary (Telescope r) where
+  put (Telescope as) = put as
+  get = liftM Telescope get
 
 
 namesTelescope :: Telescope (Scope f) -> [String]
@@ -164,6 +171,13 @@ instance Eq1 BindingTelescope where
 instance Ord1 BindingTelescope where
   compare1 (BindingTelescope as b) (BindingTelescope as' b') =
     compare as as' `mappend` compare b b'
+
+
+instance Binary r => Binary (BindingTelescope r) where
+  put (BindingTelescope as b) =
+    do put as
+       put b
+  get = liftM2 BindingTelescope get get
 
 
 namesBindingTelescope :: BindingTelescope (Scope f) -> [String]

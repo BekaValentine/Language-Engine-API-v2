@@ -1,4 +1,9 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
+
+
+
+
 
 
 
@@ -7,6 +12,7 @@
 
 module APIUtils.GrammarExtraction where
 
+import APIUtils.PackageBuilds
 import Charted.Charted
 import Golem.Utils.ABT
 import Golem.Utils.Elaborator
@@ -18,12 +24,13 @@ import Golem.Utils.Vars
 import Golem.Core.Parser
 import Golem.Core.Term
 import Golem.Unification.Elaborator
-import Golem.Unification.Elaboration
 import Golem.Unification.Unification ()
 
 import Control.Applicative
 import Control.Monad.State
+import Data.Binary
 import Data.List
+import GHC.Generics
 
 
 
@@ -39,6 +46,9 @@ data LEWord
     , category :: Term
     , meaning :: Term
     }
+  deriving (Generic)
+
+instance Binary LEWord
 
 
 
@@ -78,6 +88,9 @@ data LERule
     { ruleType :: Term
     , ruleMeaning :: Term
     }
+  deriving (Generic)
+
+instance Binary LERule
 
 
 
@@ -220,16 +233,44 @@ convertRulesToGrammar = map convertLERuleToChartedRule
 
 
 
+-- | An 'LEExtract' is just a triple of an environment, words, and rules.
+
+data LEExtract
+  = LEExtract
+    { extractEnvironment :: Env (String,String) Term
+    , extractWords :: [LEWord]
+    , extractRules :: [LERule]
+    }
+  deriving (Generic)
+
+instance Binary LEExtract
+
+
+
+
+
+-- | Multiple extracts can be combined.
+
+combineExtracts :: [LEExtract] -> LEExtract
+combineExtracts =
+  foldl' (\(LEExtract env wds rles) (LEExtract env' wds' rles') ->
+            LEExtract (env ++ env') (wds ++ wds') (rles ++ rles'))
+         (LEExtract [] [] [])
+
+
 -- | The full extraction for a program involves parsing, elaborating, then
 -- extracting the words and rules.
 
-extract :: String -> Either String ( Env (String,String) Term
-                                   , [LEWord]
-                                   , [LERule]
-                                   )
-extract src =
+extract :: [PackageBuild]
+        -> String
+        -> Either String LEExtract
+extract bg src =
   do prog <- parseProgram src
-     (_,ElabState _ defs _ _ _ _ _ _ _ _ _ _ _ _) <-
-       runElaborator0 (elabProgram prog)
-     let (wds,rles) = filterWordsAndRules defs
-     return (definitionsToEnvironment defs,wds,rles)
+     pkg <- buildWithPreludes bg prog
+     let (wds,rles) = filterWordsAndRules (packageDefinitions pkg)
+     return LEExtract
+            { extractEnvironment =
+                definitionsToEnvironment (packageDefinitions pkg)
+            , extractWords = wds
+            , extractRules = rles
+            }

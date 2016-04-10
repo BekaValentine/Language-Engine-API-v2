@@ -13,10 +13,9 @@
 
 module Main where
 
-import API.AppTokens
+import API.Apps
 import API.Authorization
-import API.PrivatePackages
-import API.PrivatePackageFiles
+import API.Packages
 import API.Users
 
 import qualified Database.PostgreSQL.Simple as DB
@@ -36,9 +35,8 @@ import System.IO
 
 type LanguageEngineAPI =
        UsersAPI
-  :<|> AppTokensAPI
-  :<|> PrivatePackagesAPI
-  :<|> PrivatePackageFilesAPI
+  :<|> AppsAPI
+  :<|> PackagesAPI
 
 
 
@@ -55,9 +53,8 @@ apiServer conn -- hn pn ea un pw
           =
        
        usersServer conn
-  :<|> appTokensServer conn
-  :<|> privatePackagesServer conn
-  :<|> privatePackageFilesServer conn
+  :<|> appsServer conn
+  :<|> packagesServer conn
 
 
 

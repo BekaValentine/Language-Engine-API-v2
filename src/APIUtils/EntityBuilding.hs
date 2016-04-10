@@ -18,6 +18,7 @@ import Golem.Core.RequireSolving (compose)
 import Golem.Core.Term
 import Golem.Utils.ABT
 import Golem.Utils.Names
+import Golem.Utils.Plicity
 import Golem.Utils.Telescope
 
 import Control.Applicative
@@ -41,7 +42,37 @@ data EntityDescription
   | BinaryStringDesc String Entity String
   deriving (Show,Generic)
 
+instance FromJSON EntityDescription
 instance ToJSON EntityDescription
+
+
+
+
+
+-- | We can turn an 'EntityDescription' into a term by convertting to the
+-- appropriate con data and externals.
+
+entityDescriptionToTerm :: EntityDescription -> Term
+entityDescriptionToTerm (PredDesc p e) =
+  conH (Absolute "LE" "Pred")
+       [ (Expl,conH (Absolute "LE" p) [])
+       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       ]
+entityDescriptionToTerm (RelDesc r e y) =
+  conH (Absolute "LE" "Rel")
+       [ (Expl,conH (Absolute "LE" r) [])
+       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       , (Expl,externalH y (conH (Absolute "LE" "Entity") []))
+       ]
+entityDescriptionToTerm (UnaryDesc c e) =
+  conH (Absolute "LE" c)
+       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       ]
+entityDescriptionToTerm (BinaryStringDesc c e s) =
+  conH (Absolute "LE" c)
+       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       , (Expl,In (MkStr s))
+       ]
 
 
 

@@ -24,9 +24,11 @@ import Data.Int (Int32)
 
 type AppID = Int32
 
-type AppTokenID = Int32
+type TokenID = Int32
 
 type CaptureID = Capture "id" Int32
+
+type ConversationID = Int32
 
 type FileID = Int32
 

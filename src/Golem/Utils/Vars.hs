@@ -1,4 +1,5 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 
@@ -8,6 +9,9 @@
 
 
 module Golem.Utils.Vars where
+
+import Data.Binary
+import GHC.Generics
 
 
 
@@ -23,7 +27,9 @@ module Golem.Utils.Vars where
 -- accidentally using it for the wrong things.
 
 newtype FreeVar = FreeVar String
-  deriving (Show,Eq,Ord)
+  deriving (Show,Eq,Ord,Generic)
+
+instance Binary FreeVar
 
 
 
@@ -31,7 +37,9 @@ newtype FreeVar = FreeVar String
 -- accidentally using it for the wrong things.
 
 newtype BoundVar = BoundVar Int
-  deriving (Show,Eq,Ord)
+  deriving (Show,Eq,Ord,Generic)
+
+instance Binary BoundVar
 
 
 
@@ -39,7 +47,9 @@ newtype BoundVar = BoundVar Int
 -- accidentally using it for the wrong things.
 
 newtype MetaVar = MetaVar Int
-  deriving (Show,Num,Eq,Ord)
+  deriving (Show,Num,Eq,Ord,Generic)
+
+instance Binary MetaVar
 
 
 

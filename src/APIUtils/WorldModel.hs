@@ -1,4 +1,5 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 
 
@@ -15,6 +16,8 @@ import Golem.Core.Term
 import Golem.Utils.Names
 
 import Control.Monad.State
+import qualified Data.Binary as B
+import GHC.Generics
 
 
 
@@ -66,6 +69,23 @@ data WorldModel
     { nextEntity :: Entity
     , facts :: [Fact]
     }
+  deriving (Generic)
+
+instance B.Binary WorldModel
+
+
+
+
+
+-- | The empty work model is the initial world model with a next entity of 0,
+-- and no facts.
+
+emptyWorldModel :: WorldModel
+emptyWorldModel =
+  WorldModel
+  { nextEntity = 0
+  , facts = []
+  }
 
 
 

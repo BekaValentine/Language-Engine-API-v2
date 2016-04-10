@@ -1,7 +1,7 @@
 {-# OPTIONS -Wall #-}
-
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -20,13 +20,16 @@
 module Golem.Core.Term where
 
 import Golem.Utils.ABT
+import Golem.Utils.BinaryF
 import Golem.Utils.Names
 import Golem.Utils.Plicity
 import Golem.Utils.Pretty
 import Golem.Utils.Telescope
 
+import Control.Monad
 import Data.Bifoldable
 import Data.Bifunctor
+import Data.Binary
 import Data.Bitraversable
 import Data.Functor.Classes
 import Data.Functor.Compose
@@ -210,6 +213,116 @@ instance Ord1 TermF where
       conName (Postulate _) = POSTULATE
 
 
+instance BinaryF TermF where
+  putF (Defined n) =
+    do put (0 :: Word8)
+       put n
+  putF (Ann m t) =
+    do put (1 :: Word8)
+       put m
+       put t
+  putF Str =
+    put (2 :: Word8)
+  putF (MkStr s) =
+    do put (3 :: Word8)
+       put s
+  putF Type =
+    put (4 :: Word8)
+  putF (Fun plic a sc) =
+    do put (5 :: Word8)
+       put plic
+       put a
+       put sc
+  putF (Lam plic sc) =
+    do put (6 :: Word8)
+       put plic
+       put sc
+  putF (App plic f x) =
+    do put (7 :: Word8)
+       put plic
+       put f
+       put x
+  putF (Con c ms) =
+    do put (8 :: Word8)
+       put c
+       put ms
+  putF (Case ms mot cls) =
+    do put (9 :: Word8)
+       put ms
+       put mot
+       put cls
+  putF (RecordType fs tele) =
+    do put (10 :: Word8)
+       put fs
+       put tele
+  putF (RecordCon fs) =
+    do put (11 :: Word8)
+       put fs
+  putF (RecordProj m x) =
+    do put (12 :: Word8)
+       put m
+       put x
+  putF (QuotedType res a) =
+    do put (13 :: Word8)
+       put res
+       put a
+  putF (Quote m) =
+    do put (14 :: Word8)
+       put m
+  putF (Unquote m) =
+    do put (15 :: Word8)
+       put m
+  putF (Continue m) =
+    do put (16 :: Word8)
+       put m
+  putF (Shift res m) =
+    do put (17 :: Word8)
+       put res
+       put m
+  putF (Reset res m) =
+    do put (18 :: Word8)
+       put res
+       put m
+  putF (Require a sc) =
+    do put (19 :: Word8)
+       put a
+       put sc
+  putF (External i a) =
+    do put (20 :: Word8)
+       put i
+       put a
+  putF (Postulate a) =
+    do put (21 :: Word8)
+       put a
+  getF =
+    do tag <- getWord8
+       case tag of
+         0 -> liftM Defined get
+         1 -> liftM2 Ann get get
+         2 -> return Str
+         3 -> liftM MkStr get
+         4 -> return Type
+         5 -> liftM3 Fun get get get
+         6 -> liftM2 Lam get get
+         7 -> liftM3 App get get get
+         8 -> liftM2 Con get get
+         9 -> liftM3 Case get get get
+         10 -> liftM2 RecordType get get
+         11 -> liftM RecordCon get
+         12 -> liftM2 RecordProj get get
+         13 -> liftM2 QuotedType get get
+         14 -> liftM Quote get
+         15 -> liftM Unquote get
+         16 -> liftM Continue get
+         17 -> liftM2 Shift get get
+         18 -> liftM2 Reset get get
+         19 -> liftM2 Require get get
+         20 -> liftM2 External get get
+         21 -> liftM Postulate get
+         _ -> undefined
+
+
+
 type Term = ABT TermF
 
 
@@ -237,6 +350,13 @@ instance Ord1 CaseMotiveF where
     compare1 tele tele'
 
 
+instance Binary r => Binary (CaseMotiveF r) where
+  put (CaseMotive tele) =
+    put tele
+  get =
+    liftM CaseMotive get
+
+
 type CaseMotive = CaseMotiveF (Scope TermF)
 
 
@@ -255,6 +375,14 @@ instance Eq1 ClauseF where
 instance Ord1 ClauseF where
   compare1 (Clause ps sc) (Clause ps' sc') =
     compare1 (Compose ps) (Compose ps') `mappend` compare sc sc'
+
+
+instance Binary r => Binary (ClauseF r) where
+  put (Clause ps m) =
+    do put ps
+       put m
+  get =
+    liftM2 Clause get get
 
 
 type Clause = ClauseF (Scope TermF)
@@ -352,6 +480,25 @@ instance Bitraversable PatternFF where
   -}
 
 
+instance Binary a => BinaryF (PatternFF a) where
+  putF (ConPat c ps) =
+    do put (0 :: Word8)
+       put c
+       put ps
+  putF (AssertionPat x) =
+    do put (1 :: Word8)
+       put x
+  putF MakeMeta =
+    put (2 :: Word8)
+  getF =
+    do tag <- getWord8
+       case tag of
+         0 -> liftM2 ConPat get get
+         1 -> liftM AssertionPat get
+         2 -> return MakeMeta
+         _ -> undefined
+
+
 -- | 'PatternF' is the type of pattern shaped containers for terms. The
 -- bifunctoriality and bifoldability of 'PatternFF' gives rise to the
 -- functoriality and foldability of 'PatternF', meaning we can use it as a
@@ -389,6 +536,11 @@ instance Foldable PatternF where
 
 instance Traversable PatternF where
   sequenceA (PatternF sc) = PatternF <$> bisequenceScopeF sc
+
+
+instance Binary a => Binary (PatternF a) where
+  put (PatternF sc) = put sc
+  get = liftM PatternF get
 
 
 -- | Because patterns need to have two domains of binders that essentially

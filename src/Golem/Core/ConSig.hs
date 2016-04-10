@@ -1,4 +1,5 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 
 
@@ -8,14 +9,16 @@
 
 module Golem.Core.ConSig where
 
+import Golem.Core.DeclArg
+import Golem.Core.Term
 import Golem.Utils.ABT
 import Golem.Utils.Names
 import Golem.Utils.Plicity
 import Golem.Utils.Pretty (pretty)
 import Golem.Utils.Telescope
 
-import Golem.Core.DeclArg
-import Golem.Core.Term
+import Data.Binary
+import GHC.Generics
 
 
 
@@ -24,6 +27,9 @@ import Golem.Core.Term
 
 
 data ConSig = ConSig [Plicity] (BindingTelescope (Scope TermF))
+  deriving (Generic)
+
+instance Binary ConSig
 
 
 instance Show ConSig where

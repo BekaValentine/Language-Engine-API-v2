@@ -1,4 +1,5 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 
 
@@ -10,6 +11,9 @@
 -- names in many variants.
 
 module Golem.Utils.Names where
+
+import Data.Binary
+import GHC.Generics
 
 
 
@@ -26,7 +30,9 @@ data Name
   = BareLocal String
   | DottedLocal String String
   | Absolute String String
-  deriving (Show,Eq,Ord)
+  deriving (Show,Eq,Ord,Generic)
+
+instance Binary Name
 
 
 showName :: Name -> String

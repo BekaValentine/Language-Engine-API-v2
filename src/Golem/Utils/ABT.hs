@@ -1,8 +1,11 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+
 
 
 
@@ -21,13 +24,17 @@
 
 module Golem.Utils.ABT where
 
+import Golem.Utils.BinaryF
 import Golem.Utils.Vars
 
+import Control.Monad
 import Data.Bifunctor
+import Data.Binary
 import Data.Bitraversable
 import qualified Data.Foldable as F (foldl')
 import Data.Functor.Classes
 import Data.List (elemIndex)
+import GHC.Generics
 
 
 
@@ -88,7 +95,9 @@ data Variable
   = Free FreeVar
   | Bound String BoundVar
   | Meta MetaVar
-  deriving (Show,Ord)
+  deriving (Show,Ord,Generic)
+
+instance Binary Variable
 
 
 -- | The name of a variable.
@@ -125,6 +134,7 @@ data Scope f
       , freeNames :: [FreeVar]
       , body :: ABT f
       }
+  deriving (Generic)
 
 deriving instance Show (f (Scope f)) => Show (Scope f)
 
@@ -696,3 +706,33 @@ bisequenceABTF (In x) = In <$> bitraverse id bisequenceScopeF x
 bisequenceScopeF :: (Applicative f, Bitraversable g)
                  => Scope (g (f a)) -> f (Scope (g a))
 bisequenceScopeF (Scope ns fns x) = Scope ns fns <$> bisequenceABTF x
+
+
+
+
+
+
+
+-- * Binary instances
+
+instance BinaryF f => Binary (ABT f) where
+  put (Var v) =
+    do put (0 :: Word8)
+       put v
+  put (In x) =
+    do put (1 :: Word8)
+       putF x
+  get =
+    do tag <- getWord8
+       case tag of
+         0 -> liftM Var get
+         1 -> liftM In getF
+         _ -> undefined
+
+instance BinaryF f => Binary (Scope f) where
+  put (Scope ns fns b) =
+    do put ns
+       put fns
+       put b
+  get =
+    liftM3 Scope get get get
