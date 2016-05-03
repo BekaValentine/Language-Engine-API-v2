@@ -1,0 +1,93 @@
+<div>
+    <div ng-hide="appEditing.editing">
+        <h1>{{appInfo.appName}}</h1>
+        <p><em>Description</em> {{appInfo.appDescription}}</p>
+    </div>
+    <div ng-show="appEditing.editing">
+        <p>
+            <em>Name</em><br/>
+            <input type="text" ng-model="appEditing.name">
+        </p>
+        <p>
+            <em>Description</em><br/>
+            <textarea
+                ng-model="appEditing.description"
+                rows="5" cols="50">
+            </textarea>
+        </p>
+    </div>
+    
+    <p ng-hide="appEditing.editing">
+        <input type="button" value="Edit App" ng-click="editApp()">
+    </p>
+    <p ng-show="appEditing.editing">
+        <input type="button" value="Save" ng-click="saveAppChanges()">
+        <input type="button" value="Cancel" ng-click="cancelEditingApp()">
+        <p ng-show="appEditing.hasError">Error: {{appEditing.error}}</p>
+    </p>
+    
+    
+    <p><em>App ID</em> {{appInfo.appID}}</p>
+    
+    <p><input type="button" value="Delete App" ng-click="deleteApp()"></p>
+</div>
+
+<div>
+    <h2>Tokens</h2>
+    <input type="button" value="New app token" ng-click="makeNewToken()">
+    <ul>
+        <li ng-show="0 === appInfo.tokens.length">
+            No tokens.
+        </li>
+        <li ng-repeat="tokenInfo in appInfo.tokens">
+            {{tokenInfo.tokenString}}
+            <input type="button" value="delete"
+                   ng-click="deleteToken(tokenInfo)">
+        </li>
+    </ul>
+</div>
+
+<div>
+    <h2>Packages</h2>
+    <p ng-hide="appPackagesEditing.editing">
+        <input type="button" value="Edit Packages" ng-click="editPackages()">
+    </p>
+    <p ng-show="appPackagesEditing.editing">
+        <input type="button" value="Save" ng-click="savePackageChanges()">
+        <input type="button" value="Cancel" ng-click="cancelEditingPackages()">
+        <p ng-show="appPackagesEditing.hasError">Error: {{appPackagesEditing.error}}</p>
+    </p>
+    <div ng-hide="appPackagesEditing.editing">
+        <ul>
+            <li ng-show="0 === appInfo.packageSummaries.length">
+                No packages.
+            </li>
+            <li ng-repeat="summary in appInfo.packageSummaries">
+                <p>{{summary.packageNameSummary}}</p>
+                <p>{{summary.packageDescriptionSummary}}</p>
+                <p><em>Is Prelude</em> {{summary.packageIsPreludeSummary}}</p>
+                <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
+                <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
+                <p><em>Needs Build</em> {{summary.packageNeedsBuildSummary}}</p>
+            </li>
+        </ul>
+    </div>
+    <div ng-show="appPackagesEditing.editing">
+        <ul>
+            <li ng-show="0 === appPackagesEditing.candidatePackages.length">
+                No packages to add.
+            </li>
+            <li ng-repeat="summary in appPackagesEditing.candidatePackages">
+                <p>
+                    <input type="checkbox" ng-model="summary.isUsed">
+                    {{summary.packageNameSummary}}
+                </p>
+                <p>{{summary.packageDescriptionSummary}}</p>
+                <p><em>Is Prelude</em> {{summary.packageIsPreludeSummary}}</p>
+                <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
+                <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
+                <p><em>Needs Build</em> {{summary.packageNeedsBuildSummary}}</p>
+            </li>
+        </ul>
+    </div>
+</div>

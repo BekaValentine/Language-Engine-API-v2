@@ -1,2 +1,9 @@
+testing:
+  package builds
+  conversations
+
+to build:
+  test conversations
+
 figure out why parsing is so slow
   hypothesis: lots of identical prefixes

@@ -1,0 +1,27 @@
+<div>
+    <h1>Login</h1>
+    <form ng-submit="login()">
+        <p>Username: <input type="text" ng-model="loginInfo.username"></p>
+        <p>Password: <input type="password" ng-model="loginInfo.password"></p>
+        <p><input type="submit"></p>
+        <p ng-show="loginError.hasError">Error: {{loginError.error}}</p>
+    </form>
+    <p><a href="#/username-recovery">Recover your username</a></p>
+    <p><a href="#/password-reset">Reset your password</a></p>
+</div>
+<div>
+    <h1>Signup</h1>
+    <form name="signupForm" ng-submit="signup()">
+        <p>Username: <input type="text" name="username" ng-model="signupInfo.username" required></p>
+        <p>Email: <input type="email" name="email" ng-model="signupInfo.email" required></p>
+        <p>Password: <input type="password" name="password" ng-model="signupInfo.password" required></p>
+        <p>Confirm password: <input type="password" name="passwordConfirm" ng-model="signupInfo.passwordConfirm" required></p>
+        <p><input type="submit" ng-disabled="!signupValid(signupForm)"></p>
+        <p ng-hide="signupForm.$pristine || signupValid(signupForm)">
+            {{signupValidityError(signupForm)}}
+        </p>
+        <p ng-show="signupResult.hasResult">
+            {{signupResult.result}}
+        </p>
+    </form>
+</div>

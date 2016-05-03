@@ -1,0 +1,136 @@
+<div>
+    <div ng-hide="packageEditing.editing">
+        <h1>{{packageInfo.packageName}}</h1>
+        <p><em>Description</em> {{packageInfo.packageDescription}}</p>
+        <p><em>Is Prelude</em> {{packageInfo.packageIsPrelude}}</p>
+        <p><em>Uses Prelude</em> {{packageInfo.packageUsesPrelude}}</p>
+        <p><em>Is Public</em> {{packageInfo.packageIsPublic}}</p>
+    </div>
+    <div ng-show="packageEditing.editing">
+        <p>
+            <em>Name</em><br/>
+            <input type="text" ng-model="packageEditing.name">
+        </p>
+        <p>
+            <em>Description</em><br/>
+            <textarea
+                ng-model="packageEditing.description"
+                rows="5" cols="50">
+            </textarea>
+        </p>
+        <p>
+            <em>Is Prelude</em>
+            <input type="checkbox"
+                   ng-model="packageEditing.isPrelude"
+                   ng-click="enforceIsPrelude()"
+                   ng-show="packageInfo.userCanMakePrelude">
+            <span ng-hide="packageInfo.userCanMakePrelude">
+                {{packageEditing.isPrelude}}
+            </span>
+        </p>
+        <p>
+            <em>Uses Prelude</em>
+            <input type="checkbox"
+                   ng-model="packageEditing.usesPrelude"
+                   ng-click="enforceUsesPrelude()">
+        </p>
+        <p>
+            <em>Is Public</em>
+            <input type="checkbox" ng-model="packageEditing.isPublic">
+        </p>
+    </div>
+    
+    <p ng-hide="!packageInfo.packageIsOwn || packageEditing.editing">
+        <input type="button" value="Edit Package" ng-click="editPackage()">
+    </p>
+    <p ng-show="packageEditing.editing">
+        <input type="button" value="Save" ng-click="savePackageChanges()">
+        <input type="button" value="Cancel" ng-click="cancelEditingPackage()">
+        <p ng-show="packageEditing.hasError">Error: {{packageEditing.error}}</p>
+    </p>
+    
+    <div>
+        <p>
+            <em>Needs Build</em>
+            {{packageInfo.packageNeedsBuild}}
+            <input type="button"
+                   value="Build"
+                   ng-click="buildPackage()"
+                   ng-show="packageInfo.packageIsOwn">
+            <p ng-show="buildInfo.hasError">Error: {{buildInfo.error}}</p>
+        </p>
+        <p><em>Your package</em> {{packageInfo.packageIsOwn}}</p>
+        <p><em>Package ID</em> {{packageInfo.packageID}}</p>    
+    </div>        
+    
+    <p>
+        <input type="button"
+               value="Delete Package"
+               ng-click="deletePackage()"
+               ng-show="packageInfo.packageIsOwn">
+    </p>
+</div>
+
+<div>
+    <h3>Files</h3>
+    <div>
+        <h4>Create New File</h4>
+        <p>Name: <input type="text" ng-model="newFileInfo.name"></p>
+        <p>
+            <input type="button"
+                   value="Submit"
+                   ng-disabled="!fileInfoIsValid()"
+                   ng-click="createFile()">
+        </p>
+        <p ng-show="newFileInfo.hasResponse">{{newFileInfo.response}}</p>
+    </div>
+    <ul>
+        <li ng-show="0 === packageInfo.fileSummaries.length">
+            No files.
+        </li>
+        <li ng-repeat="fileSummary in packageInfo.fileSummaries">
+            <p>{{fileSummary.fileNameSummary}}</p>
+            <p>{{fileSummary.fileDescriptionSummary}}</p>
+            <p>
+                <input type="button"
+                       value="View"
+                       ng-click="viewFile(fileSummary.fileIDSummary)">
+            </p>
+        </li>
+    </ul>
+</div>
+
+<div>
+    <h4>File View</h4>
+    <div ng-show="!packageInfo.packageIsOwn && fileInfo.fileSelected">
+        <p>Name: {{fileInfo.name}}</p>
+        <p>Description: {{fileInfo.description}}</p>
+        <p>Source Code:</p>
+        <div>{{fileInfo.sourceCode}}</div>
+    </div>
+    <div ng-show="packageInfo.packageIsOwn && fileInfo.fileSelected">
+        <p>
+            <input type="button"
+                   value="Save"
+                   ng-click="saveFileChanges()"
+                   ng-disabled="!fileChanged()">
+            <input type="button"
+                   value="Delete"
+                   ng-click="deleteFile()">
+        </p>
+        <p ng-show="fileEditing.hasError">{{fileEditing.error}}</p>
+        <p>Name: <input type="text" ng-trim="false" ng-model="fileEditing.name"></p>
+        <p>Description:</p>
+        <textarea rows="5" cols="50" ng-trim="false" ng-model="fileEditing.description"></textarea>
+        <p>Source Code:</p>
+        <div style="border: 1px solid grey;">
+          <textarea
+             ui-codemirror="cmOption"
+             ui-refresh='sourceCodeIsSomething'
+             ng-model="fileEditing.sourceCode"></textarea>
+        </div>
+    </div>
+    <div ng-hide="fileInfo.fileSelected">
+        No file selected.
+    </div>
+</div>

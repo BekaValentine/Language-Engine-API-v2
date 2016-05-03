@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <script type="text/javascript" src="languageEngine.js"></script>
+        <script type="text/javascript">
+            'use strict';
+            
+            
+            var c = new LanguageEngine.Conversation(null, 7);
+            var x = c.ent({ '-Exp': c.ev('Named', { 'Name': c.ent({}) }) });
+            
+            console.log(c.worldModel);
+        </script>
+    </body>
+</html>

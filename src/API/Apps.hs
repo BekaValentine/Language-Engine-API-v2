@@ -389,11 +389,11 @@ apps_id_get conn aid auth =
      foundPkgs :: [(PackageID,String,String,Bool,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
-            " SELECT                                \
-            \   id, name, description, uses_prelude \
-            \   is_prelude, is_public, needs_build  \
-            \ FROM packages                         \
-            \ WHERE id IN ?                         "
+            " SELECT                                 \
+            \   id, name, description, uses_prelude, \
+            \   is_prelude, is_public, needs_build   \
+            \ FROM packages                          \
+            \ WHERE id IN ?                          "
             (DB.Only (DB.In (DB.fromPGArray pkgs)))
      foundToks :: [(TokenID,String)]
        <- liftIO $ DB.query

@@ -1,0 +1,50 @@
+<h1>Packages</h1>
+
+<div>
+    <h3>Create new package</h3>
+    <p>Name: <input type="text" ng-model="newPackageInfo.name"></p>
+    <p><input type="submit" ng-disabled="!packageInfoIsValid()" ng-click="createPackage()"></p>
+    <p ng-show="newPackageInfo.hasResponse">{{newPackageInfo.response}}</p>
+</div>
+
+<div>
+    <h3>Your packages</h3>
+    <ul>
+        <li ng-show="0 === packageSummaries.ownPackages.length">
+            You have no packages.
+        </li>
+        <li ng-repeat="packageSummary in packageSummaries.ownPackages">
+            <a href="#/packages/{{packageSummary.packageIDSummary}}">
+                {{packageSummary.packageNameSummary}}
+            </a>
+            <p>
+                Is Prelude: {{packageSummary.packageIsPreludeSummary}},
+                Uses Prelude: {{packageSummary.packageUsesPreludeSummary}},
+                Is Public: {{packageSummary.packageIsPublicSummary}},
+                Needs Build: {{packageSummary.packageNeedsBuildSummary}}
+            </p>
+            <p>{{packageSummary.packageDescriptionSummary}}</p>
+        </li>
+    </ul>
+</div>
+
+<div>
+    <h3>Public packages</h3>
+    <ul>
+        <li ng-show="0 === packageSummaries.publicPackages.length">
+            There are no public packages.
+        </li>
+        <li ng-repeat="packageSummary in packageSummaries.publicPackages">
+            <a href="#/packages/{{packageSummary.packageIDSummary}}">
+                {{packageSummary.packageNameSummary}}
+            </a>
+            <p>
+                Is Prelude: {{packageSummary.packageIsPreludeSummary}},
+                Uses Prelude: {{packageSummary.packageUsesPreludeSummary}},
+                Is Public: {{packageSummary.packageIsPublicSummary}},
+                Needs Build: {{packageSummary.packageNeedsBuildSummary}}
+            </p>
+            <p>{{packageSummary.packageDescriptionSummary}}</p>
+        </li>
+    </ul>
+</div>

@@ -1,0 +1,8 @@
+<h1>Username Recovery</h1>
+<form name="recoveryForm" ng-submit="recoverUsername()">
+    <p>Email address: <input type="email" ng-model="recoveryInfo.email"></p>
+    <p><input type="submit" ng-disabled="recoveryForm.input.$error.email || recoveryResponse.clicked"></p>
+    <div ng-show="recoveryResponse.hasResponse">
+        {{recoveryResponse.response}}
+    </div>
+</form>

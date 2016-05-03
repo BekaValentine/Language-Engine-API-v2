@@ -1,0 +1,29 @@
+<h1>Settings</h1>
+
+<div>
+    <h2>Change Email</h2>
+    <p>Current email address: {{emailInfo.email}}</p>
+    <p>New email address: <input type="email" ng-model="newEmailInfo.newEmail"></p>
+    <p>
+        <input type="button" value="Save email"
+               ng-disabled="!newEmailIsValid()"
+               ng-click="setNewEmail()">
+    </p>
+    <p ng-show="newEmailInfo.hasResponse">
+        {{newEmailInfo.response}}
+    </p>
+</div>
+
+<div>
+    <h2>Change Password</h2>
+    <p>New password: <input type="password" ng-model="newPasswordInfo.newPassword"></p>
+    <p>Confirm new password: <input type="password" ng-model="newPasswordInfo.confirmNewPassword"></p>
+    <p>
+        <input type="button" value="Save new PW"
+               ng-disabled="!newPasswordIsValid()"
+               ng-click="setNewPassword()">
+    </p>
+    <p ng-show="newPasswordResponse.hasResponse">
+        {{newPasswordResponse.response}}
+    </p>
+</div>

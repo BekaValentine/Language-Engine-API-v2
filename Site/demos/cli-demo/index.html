@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            #treeContainer {
+                border: 1px solid #999999;
+                margin: 0 0 -1px 0;
+                padding: 5px;
+                width: 590px;
+                height: 190px;
+            }
+            #tree {
+                width: 590px;
+                height: 190px;
+                margin: 0;
+                padding: 0;
+            }
+            #readoutContainer {
+                border: 1px solid #999999;
+                margin: 0 0 10px 0;
+                padding: 5px;
+                width: 590px;
+                height: 200px;
+                position: relative;
+                overflow: hidden;
+            }
+            #readout {
+                width: 590px;
+                margin: 0;
+                padding: 0;
+                position: absolute;
+                bottom: 0px;
+            }
+            #input {
+                width: 560px;
+            }
+            #blurb {
+                width: 600px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="blurb">
+            <p>This demo is intentionally sparse, recreating the video demo.</p>
+            
+            <p>
+                The source of this page has all of the JS code that makes this
+                particular demo go. The JS lib for Language Engine is located
+                <a href="https://calm-eyrie-6520.herokuapp.com/site/resources/languageEngine.js">
+                    here
+                </a>.
+            </p>
+            
+            <p>
+                The vocabulary and concepts for this demo is in the public module
+                FSDemo, while the non-demo-specific vocabulary is in FSDemoEnglish.
+                Both are very sparse — just enough to make the demo work, and to
+                show how a module looks when it has stuff in it. These can be found
+                via the web UI <a href="https://calm-eyrie-6520.herokuapp.com/site/dashboard">here</a>.
+            </p>
+
+            <p>Some inputs to try:</p>
+            
+            <ul>
+                <li>show the JPEGs</li>
+                <li>make a folder called "foo"</li>
+                <li>move Sheridan.gif to foo</li>
+                <li>move Franklin.jpg to a folder called "bar"</li>
+                <li>duplicate every JPEG and move the copies to a folder called "quux"</li>
+            </ul>
+            
+            <p>
+                As this is a very simple demo, the vocabulary is not very rich, nor
+                very complete. For example, if instead of "show the JPEGs" you type
+                "show me the JPEGs", it won't be able to parse it, because this variant
+                of the word "show", which takes a recipient argument "me", is not
+                part of the lexicon as defined. A fuller version of Language Engine
+                would be able to automatically provide such things by relying on
+                databases like FrameNet.
+            </p>
+        </div>
+        <div id="treeContainer"><pre id="tree"></pre></div>
+        <div id="readoutContainer"><pre id="readout"></pre></div>
+        <div>
+            <input type="text" id="input" onkeypress="CLI.keypress(event)">
+            <input type="button" value="run" onclick="CLI.runCommand()">
+        </div>
+        
+    </body>
+    <script src="https://calm-eyrie-6520.herokuapp.com/site/resources/languageEngine.js"></script>
+    <script>
+        'use strict';
+        
+        var CLI = {};
+        CLI.n = function (l,ns) {
+            var tree = { label: l, nodes: ns };
+            ns.forEach(function (n) { n.parent = tree; });
+            return tree;
+        };
+        CLI.linToLines = function (tree) {
+            var lines = [CLI.currentDir === tree ? tree.label + ' &lt;&lt;&lt;' : tree.label];
+            
+            tree.nodes.forEach(function (node) {
+               lines = Array.prototype.concat.
+                 apply(lines, CLI.linToLines(node).
+                                map(function (ln) {
+                                    return '  ' + ln;
+                                }));
+            });
+            
+            return lines;
+        };
+        CLI.linearize = function (tree) {
+            return CLI.linToLines(tree).join('\n');
+        };
+        CLI.clear = function () {
+          document.getElementById('readout').innerHTML = '';    
+        };
+        CLI.putStrLn = function (ln) {
+          document.getElementById('readout').innerHTML += ln + '\n';  
+        };
+        CLI.redrawTree = function () {
+            document.getElementById("tree").innerHTML = CLI.linearize(CLI.dirStructure);
+        };
+        CLI.setCurrentDir = function (tree) {
+            CLI.previousDir = CLI.currentDir;
+            CLI.currentDir = tree;
+            CLI.redrawTree();
+        };
+        CLI.move = function (item, tgt) {
+          if (item.parent) {
+              item.parent.nodes = item.parent.nodes.filter(function (n) {
+                  return n !== item;
+              });
+          }
+          tgt.nodes.push(item);
+          item.parent = tgt;
+          CLI.redrawTree();
+          return true;
+        };
+        CLI.get = function (name) {
+            var found = null
+            
+            CLI.currentDir.nodes.forEach(function (n) {
+                if (name === n.label) {
+                    found = n;
+                }
+            });
+            
+            return found;
+        }
+        CLI.goBack = function () {
+            if (CLI.previousDir) {
+                CLI.setCurrentDir(CLI.previousDir);
+                CLI.putStrLn('Going back');
+            } else {
+                CLI.putStrLn('Nowhere to go back to');
+            }
+        };
+        CLI.goUp = function () {
+            if (CLI.currentDir.parent) {
+                CLI.setCurrentDir(CLI.currentDir.parent);
+                CLI.putStrLn('Going up');
+            } else {
+                CLI.putStrLn('Nowhere to go up to');
+            }
+        };
+        CLI.makeDir = function (name) {
+          var node = CLI.n(name, []);
+          node.parent = CLI.currentDir;
+          CLI.currentDir.nodes.push(node);
+          CLI.redrawTree();
+          
+          return node;
+        };
+        CLI.copy = function (src) {
+          var node = CLI.n(src.label + ".copy", []);
+          node.parent = CLI.currentDir;
+          CLI.currentDir.nodes.push(node);
+          CLI.redrawTree();
+          
+          return node;
+        };
+        CLI.delete = function (tree) {
+            if (tree.parent) {
+                tree.parent.nodes = tree.parent.nodes.filter(function (n) {
+                    return n !== tree;
+                })
+                CLI.redrawTree();
+                return true;
+            } else {
+                return false;
+            }
+        };
+        CLI.keypress = function (ev) {
+            ev.cancelBubble = true;
+            if (13 === ev.charCode) {
+                CLI.runCommand();
+            }
+        };
+        CLI.runCommand = function () {
+            var input = document.getElementById('input');
+            var cmd = input.value;
+            input.value = '';
+            CLI.putStrLn('> ' + cmd);
+            CLI.conversation.processInput(cmd).
+              error(function () {
+                  CLI.putStrLn('Cannot understand input');
+              })
+        };
+        CLI.construeWorld = function () {
+            var convo = CLI.conversation;
+            
+            convo.dataEnt(CLI.dirStructure, {
+               '-Exp': [ convo.ev('Public.DemoFS.Folder', {}),
+                         convo.ev('Named', { 'Name': convo.ent({ 'stringVal': CLI.dirStructure.label })}) ] 
+            });
+            
+            convo.dataEnt(CLI.backDirection, {
+               '-Exp': [ convo.ev('Public.DemoFS.BackDir', {}) ] 
+            });
+            
+            convo.dataEnt(CLI.upDirection, {
+               '-Exp': [ convo.ev('Public.DemoFS.UpDir', {}) ] 
+            });
+            
+            CLI.currentDir.nodes.forEach(function (item) {
+                
+                if (item.label.match(/\.(jpg|jpeg|JPG|JPEG)$/)) {
+                    
+                    convo.dataEnt(item, {
+                        '-Exp': [ convo.ev('Public.DemoFS.JPEG', {}),
+                                  convo.ev('Public.DemoFS.File', {}),
+                                  convo.ev('Named', { 'Name': convo.ent({ 'stringVal': item.label }) }) ]
+                    });
+                    
+                } else if (item.label.match(/\.(gif|GIF)$/)) {
+                    
+                    convo.dataEnt(item, {
+                        '-Exp': [ convo.ev('Public.DemoFS.GIF', {}),
+                                  convo.ev('Public.DemoFS.File', {}),
+                                  convo.ev('Named', { 'Name': convo.ent({ 'stringVal': item.label }) }) ]
+                    });
+                    
+                } else {
+                    
+                    convo.dataEnt(item, {
+                        '-Exp': [ convo.ev('Public.DemoFS.Folder', {}),
+                                  convo.ev('Named', { 'Name': convo.ent({ 'stringVal': item.label }) }) ] 
+                    });
+                    
+                }
+                
+            });
+            
+            convo.pushUpdates();
+        };
+        
+        CLI.backDirection = {};
+        CLI.upDirection = {};
+        
+        CLI.dirStructure = CLI.n('images', [
+          CLI.n('Franklin.jpg', []),
+          CLI.n('Garibaldi.jpg', []),
+          CLI.n('Ivanova.jpg', []),
+          CLI.n('Sheridan.gif', [])
+        ]);
+        CLI.setCurrentDir(CLI.dirStructure);
+        
+        CLI.previousDir = null;
+        
+        
+        CLI.conversation = new LanguageEngine.Conversation('https://calm-eyrie-6520.herokuapp.com/api', 1);
+        CLI.conversation.setDefaultHandler(function (desc) {
+            CLI.putStrLn('No handler for this command');
+            CLI.putStrLn('');
+        });
+        
+        // set up the world model so that the system knows what's what
+        CLI.conversation.connect().
+          success(function () { CLI.construeWorld() });
+        
+        
+        //
+        //  Set up the handlers for each relevant concept
+        //
+        
+        CLI.conversation.setHandler('Public.DemoFS.Show',
+          ['Obj'], function (ed,objs) {
+            
+            objs.forEach(function (obj) {
+                CLI.putStrLn(obj.data().label);
+            });
+        });
+        
+        
+        CLI.conversation.setHandler('Public.DemoFS.Make',
+          ['Obj'], function (ed,objs) {
+            
+            objs.forEach(function (obj) {
+                // can only make folders
+               if(obj.any('-Exp', function (ev) { return ev.pred() === 'Public.DemoFS.Folder'; })) {
+                   
+                   var name = "untitled";
+                   
+                   obj.any('-Exp', function (ev) {
+                       return ev.pred() === 'Named' &&
+                              ev.any('Name', function (n) {
+                                  name = n.stringVal();
+                                  return true;
+                              });
+                   });
+                   
+                   CLI.putStrLn('Making ' + name)
+                   
+                   obj.setData(CLI.makeDir(name));
+               }
+            });
+        });
+        
+        
+        CLI.conversation.setHandler('Public.DemoFS.Move',
+          ['Obj','Dest'], function (ed,objs,dests) {
+            
+            if (1 !== dests.length) {
+                CLI.putStrLn('Error: Cannot move items to multiple locations');
+            } else {
+                var dest = dests[0];
+                
+                if (!dest.data()) {
+                    var name = "untitled";
+                    
+                    dest.any('-Exp', function (ev) {
+                       return ev.pred() === 'Named' &&
+                              ev.any('Name', function (n) {
+                                  name = n.stringVal();
+                                  return true;
+                              });
+                    });
+                    
+                    dest.setData(CLI.get(name) || CLI.makeDir(name));
+                }
+                objs.forEach(function (obj) {
+                   CLI.putStrLn('Moving ' + obj.data().label + ' to ' + dest.data().label);
+                   
+                   CLI.move(obj.data(), dest.data());
+                });
+            }
+        });
+        
+        
+        CLI.conversation.setHandler('Public.DemoFS.Go',
+          ['Dest'], function (ed,dests) {
+            
+            if (1 !== dests.length) {
+                CLI.putStrLn('Error: Cannot go to multiple places');
+            } else {
+                var dest = dests[0];
+                
+                if (dest.data() === CLI.backDirection) {
+                    
+                    CLI.goBack();
+                    
+                } else if (dest.data() === CLI.upDirection) {
+                    
+                    CLI.goUp();
+                    
+                } else if (dest.any('-Exp', function (ev) { return ev.pred() === 'Public.DemoFS.Folder'; })) {
+                    
+                    CLI.setCurrentDir(dest.data());
+                    CLI.putStrLn('Going to ' + dest.data().label)
+                    
+                } else {
+                    CLI.putStrLn('Error: Cannot go to a non-folder');
+                }
+            }
+        });
+        
+        
+        CLI.conversation.setHandler('Public.DemoFS.Copy',
+          ['Public.DemoFS.Copy.Original', 'Public.DemoFS.Copy.Result'],
+          function (ed,originals,results) {
+            
+            if (1 !== originals.length || 1 !== results.length) {
+                CLI.putStrLn('Error: Can only copy one thing at a time');
+            } else {
+                var original = originals[0];
+                var result = results[0];
+                CLI.putStrLn('Copying ' + original.data().label);
+                
+                result.setData(CLI.copy(original.data()));
+            }
+            
+        });
+        
+        
+    </script>
+</html>

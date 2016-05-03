@@ -15,10 +15,13 @@ module Main where
 
 import API.Apps
 import API.Authorization
+import API.Login
 import API.Packages
 import API.Users
 
 import qualified Database.PostgreSQL.Simple as DB
+import Network.Mail.SMTP
+import Network.Socket (HostName,PortNumber)
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Cors
 import Servant
@@ -34,7 +37,8 @@ import System.IO
 -- | The API has a number of sub-APIs for various functionalities.
 
 type LanguageEngineAPI =
-       UsersAPI
+       LoginAPI
+  :<|> UsersAPI
   :<|> AppsAPI
   :<|> PackagesAPI
 
@@ -43,18 +47,32 @@ type LanguageEngineAPI =
 
 
 apiServer :: DB.Connection
-          -- -> HostName
-          -- -> PortNumber
-          -- -> EmailAddress
-          -- -> UserName
-          -- -> Password
+          -> HostName
+          -> PortNumber
+          -> Address
+          -> UserName
+          -> Password
           -> Server LanguageEngineAPI
-apiServer conn -- hn pn ea un pw
+apiServer conn hn pn ea un pw
           =
-       
-       usersServer conn
+       loginServer conn hn pn ea un pw
+  :<|> usersServer conn
   :<|> appsServer conn
   :<|> packagesServer conn
+
+
+
+
+
+type LanguageEngineSite = Raw
+
+
+
+
+
+siteServer :: FilePath -> Server LanguageEngineSite
+siteServer fp
+  = serveDirectory (fp ++ "/Site")
 
 
 
@@ -63,25 +81,25 @@ apiServer conn -- hn pn ea un pw
 -- | The whole LE server type consists of a site server and an api server.
 
 type LanguageEngineServer =
-  "api" :> LanguageEngineAPI
---  :<|> "site" :> LanguageEngineSite
+       "api" :> LanguageEngineAPI
+  :<|> "site" :> LanguageEngineSite
 
 
 
 
 
 server :: DB.Connection
-       -- -> FilePath 
-       -- -> HostName
-       -- -> PortNumber
-       -- -> EmailAddress
-       -- -> UserName
-       -- -> Password
+       -> FilePath 
+       -> HostName
+       -> PortNumber
+       -> Address
+       -> UserName
+       -> Password
        -> Server LanguageEngineServer
-server conn -- fp hn pn ea un pw
+server conn fp hn pn ea un pw
   =
-  apiServer conn --hn pn ea un pw
---  :<|> siteServer fp
+       apiServer conn hn pn ea un pw
+  :<|> siteServer fp
 
 
 
@@ -117,14 +135,13 @@ main = do
             "host=localhost user=language_engine_admin \
             \password=password dbname=language_engine"
   putStrLn $ "Running server on port " ++ show port ++ "..."
-  {-
-  let supportHostname = "smtp.mandrillapp.com"
-      supportPortNumber = 587
-      supportEmail = "support@languagengine.co"
+  let supportHostname = "smtpout.secureserver.net"
+      supportPortNumber = 80
+      supportEmail = Address (Just "Language Engine Support")
+                             "support@languagengine.co"
       supportUsername = "support@languagengine.co"
-      supportPassword = "1QKW7SgMhK4KdOVL-QdlKA"
-      -}
+      supportPassword = "7W6C#ZFBNrnZGw4GT45h"
   run port
     $ simpleCors
     $ serveWithContext languageEngineServer (serverContext conn)
-    $ server conn --fp supportHostname supportPortNumber supportEmail supportUsername supportPassword
+    $ server conn fp supportHostname supportPortNumber supportEmail supportUsername supportPassword

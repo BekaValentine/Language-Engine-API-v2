@@ -44,6 +44,7 @@ data PackageSummary
     { packageIDSummary :: PackageID
     , packageNameSummary :: String
     , packageDescriptionSummary :: String
+    , packageIsOwnSummary :: Bool
     , packageUsesPreludeSummary :: Bool
     , packageIsPreludeSummary :: Bool
     , packageIsPublicSummary :: Bool
@@ -66,6 +67,7 @@ data Package
     { packageID :: PackageID
     , packageName :: String
     , packageDescription :: String
+    , packageIsOwn :: Bool
     , packageUsesPrelude :: Bool
     , packageIsPrelude :: Bool
     , packageIsPublic :: Bool
@@ -221,6 +223,33 @@ ensureUserAuthorized conn pid uid =
 
 
 
+-- | We can ensure that a user is authorized to view a package by checking
+-- that they own it or that it's public.
+
+-- | We can ensure that a user with a specified ID is authorized to access
+-- a specified package by confirming that they are the owner of the package.
+
+ensureUserAuthorizedToView
+  :: DB.Connection
+  -> PackageID
+  -> UserID
+  -> ExceptT ServantErr IO ()
+ensureUserAuthorizedToView conn pid uid =
+  do foundPkgs :: [DB.Only PackageID]
+        <- liftIO $ DB.query
+             conn
+             " SELECT id                           \
+             \ FROM packages                       \
+             \ WHERE id = ?                        \
+             \ AND (owner = ? OR is_public = true) "
+             (pid, uid)
+     when (null foundPkgs)
+          (throwError err401)
+
+
+
+
+
 -- | We can ensure that a specified package contains a specified file by
 -- looking in the DB.
 
@@ -239,6 +268,33 @@ ensureUserAuthorizedOnFile conn pid fid uid =
             \ AND files.package = packages.id \
             \ AND packages.id = ?             \
             \ AND packages.owner = ?          "
+            (fid,pid,uid)
+     when (null foundFiles)
+          (throwError err404)
+
+
+
+
+
+-- | We can ensure that a user is authorized to view a particular file by
+-- checking that they own it's parent package or the package is public.
+
+ensureUserAuthorizedOnFileToView
+  :: DB.Connection
+  -> PackageID
+  -> FileID
+  -> UserID
+  -> ExceptT ServantErr IO ()
+ensureUserAuthorizedOnFileToView conn pid fid uid =
+  do foundFiles :: [DB.Only FileID]
+       <- liftIO $ DB.query
+            conn
+            " SELECT files.id                                       \
+            \ FROM files, packages                                  \
+            \ WHERE files.id = ?                                    \
+            \ AND files.package = packages.id                       \
+            \ AND packages.id = ?                                   \
+            \ AND (packages.owner = ? OR packages.is_public = true) "
             (fid,pid,uid)
      when (null foundFiles)
           (throwError err404)
@@ -338,25 +394,28 @@ packages_get
                :> BasicAuth "le-realm" Auth.Authorization
                :> Get '[JSON] [PackageSummary])
 packages_get conn auth =
-  do pkgs :: [(PackageID,String,String,Bool,Bool,Bool,Bool)]
+  do pkgs :: [(PackageID,String,String,UserID,Bool,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
             " SELECT                                 \
-            \   id, name, description, uses_prelude, \
-            \   is_prelude, is_public, needs_build   \
+            \   id, name, description, owner,        \
+            \   uses_prelude, is_prelude, is_public, \
+            \   needs_build                          \
             \ FROM packages                          \
-            \ WHERE owner=?                          "
+            \ WHERE owner = ?                        \
+            \ OR is_public = true                    "
             (DB.Only (Auth.userID auth))
      return [ PackageSummary
               { packageIDSummary = pid
               , packageNameSummary = nme
               , packageDescriptionSummary = desc
+              , packageIsOwnSummary = owner == Auth.userID auth
               , packageUsesPreludeSummary = up
               , packageIsPreludeSummary = isp
               , packageIsPublicSummary = ispub
               , packageNeedsBuildSummary = nb
               }
-            | (pid,nme,desc,up,isp,ispub,nb) <- pkgs
+            | (pid,nme,desc,owner,up,isp,ispub,nb) <- pkgs
             ]
        
 
@@ -389,6 +448,7 @@ packages_post conn auth (PackageConfig nme) =
                 { packageIDSummary = pid
                 , packageNameSummary = nme
                 , packageDescriptionSummary = ""
+                , packageIsOwnSummary = True
                 , packageUsesPreludeSummary = True
                 , packageIsPreludeSummary = False
                 , packageIsPublicSummary = False
@@ -409,20 +469,21 @@ packages_id_get
                :> BasicAuth "le-realm" Auth.Authorization
                :> Get '[JSON] Package)
 packages_id_get conn pid auth =
-  do ensureUserAuthorized conn pid (Auth.userID auth)
-     foundPkgs :: [(String,String,Bool,Bool,Bool,Bool)]
+  do ensureUserAuthorizedToView conn pid (Auth.userID auth)
+     foundPkgs :: [(String,String,UserID,Bool,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
-            " SELECT                               \
-            \   name, description, uses_prelude,   \
-            \   is_prelude, is_public, needs_build \
-            \ FROM packages                        \
-            \ WHERE id = ?                         "
+            " SELECT                                 \
+            \   name, description, owner,            \
+            \   uses_prelude, is_prelude, is_public, \
+            \   needs_build                          \
+            \ FROM packages                          \
+            \ WHERE id = ?                           "
             (DB.Only pid)
      case foundPkgs of
        [] -> throwError err404
        _:_:_ -> throwError err500
-       [(nme,desc,up,isp,ispub,nb)] ->
+       [(nme,desc,owner,up,isp,ispub,nb)] ->
          do foundFiles :: [(FileID,String,String)]
               <- liftIO $ DB.query
                    conn
@@ -432,6 +493,7 @@ packages_id_get conn pid auth =
                      { packageID = pid
                      , packageName = nme
                      , packageDescription = desc
+                     , packageIsOwn = owner == Auth.userID auth
                      , packageUsesPrelude = up
                      , packageIsPrelude = isp
                      , packageIsPublic = ispub
@@ -575,7 +637,10 @@ packages_id_build_put conn pid auth =
           then
             liftIO $ DB.query_
               conn
-              "SELECT build_product FROM packages WHERE is_prelude = true"
+              " SELECT build_product    \
+              \ FROM packages           \
+              \ WHERE is_prelude = true \
+              \ AND is_public = true    "
           else
             return []
      let fullSource = unlines [ src | DB.Only src <- fileSrcs ]
@@ -587,7 +652,9 @@ packages_id_build_put conn pid auth =
        Right ex ->
          do _ <- liftIO $ DB.execute
                    conn
-                   "UPDATE packages SET build_product = ? WHERE id = ?"
+                   " UPDATE packages                            \
+                   \ SET needs_build = false, build_product = ? \
+                   \ WHERE id = ?                               "
                    (B.encode ex, pid)
             return Build { errorMessage = Nothing }
 
@@ -617,15 +684,11 @@ packages_id_files_post conn pid auth (FileConfig nme) =
             (nme,pid)
      case fileCreateRows of
        [DB.Only fid] ->
-         do _ <- liftIO $ DB.execute
-                   conn
-                   "UPDATE packages SET needs_build = true WHERE id = ?"
-                   (DB.Only pid)
-            return FileSummary
-                   { fileIDSummary = fid
-                   , fileNameSummary = nme
-                   , fileDescriptionSummary = ""
-                   }
+         return FileSummary
+                { fileIDSummary = fid
+                , fileNameSummary = nme
+                , fileDescriptionSummary = ""
+                }
        _ -> throwError err500
 
 
@@ -642,7 +705,7 @@ packages_id_files_id_get
                :> BasicAuth "le-realm" Auth.Authorization
                :> Get '[JSON] File)
 packages_id_files_id_get conn pid fid auth =
-  do ensureUserAuthorizedOnFile conn pid fid (Auth.userID auth)
+  do ensureUserAuthorizedOnFileToView conn pid fid (Auth.userID auth)
      foundFiles :: [(String,String,String)]
        <- liftIO $ DB.query
             conn
@@ -728,4 +791,8 @@ packages_id_files_id_delete conn pid fid auth =
             conn
             "DELETE FROM files WHERE id = ?"
             (DB.Only fid)
+     _ <- liftIO $ DB.execute
+                conn
+                "UPDATE packages SET needs_build = true WHERE id = ?"
+                (DB.Only pid)
      return ()

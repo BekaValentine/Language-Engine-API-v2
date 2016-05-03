@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html ng-app="leApp">
+    <head>
+        <title>Language Engine</title>
+        <link rel="stylesheet" href="/site/dashboard/codemirror/lib/codemirror.css">
+        <link rel="stylesheet" href="/site/dashboard/codemirror/theme/base16-light.css">
+    </head>
+    <body ng-controller="LoginController" >
+        
+        <nav>
+            <ul ng-show="isLoggedIn()">
+                <li><a href="#/apps">Apps</a></li>
+                <li><a href="#/packages">Packages</a></li>
+                <li><a href="#/settings">Settings</a></li>
+                <li><a href="#/" ng-click="logout()">Logout</a></li>
+            </ul>
+            <ul ng-hide="isLoggedIn()">
+                <li><a href="#/">Login</a></li>
+            </ul>
+        </nav>
+        
+        <section ng-view>
+            
+        </section>
+        
+        
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.2/angular.min.js"></script>
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.2/angular-route.min.js"></script>
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.2/angular-resource.min.js"></script>
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.2/angular-cookies.min.js"></script>
+        
+        <script type="text/javascript" src="/site/dashboard/js/app.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/apiService.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/expanderDirective.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/usernameRecoveryController.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/passwordResetController.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/loginController.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/settingsController.js"></script>
+        
+        <script type="text/javascript" src="/site/dashboard/js/appsController.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/appsIDController.js"></script>
+        
+        <script type="text/javascript" src="/site/dashboard/js/packagesController.js"></script>
+        
+        <script type="text/javascript" src="/site/dashboard/js/packagesIDController.js"></script>
+        <script type="text/javascript" src="/site/dashboard/js/ui-codemirror.js"></script>
+        <script type="text/javascript" src="/site/dashboard/codemirror/lib/codemirror.js"></script>
+        <script type="text/javascript" src="/site/dashboard/codemirror/addon/comment/comment.js"></script>
+        <script type="text/javascript" src="/site/dashboard/codemirror/mode/golem/golem.js"></script>
+        
+        
+    </body>
+</html>

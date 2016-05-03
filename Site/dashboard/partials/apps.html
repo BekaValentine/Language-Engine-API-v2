@@ -1,0 +1,23 @@
+<h1>Apps</h1>
+
+<div>
+    <h3>Create new app</h3>
+    <p>Name: <input type="text" ng-model="newAppInfo.name"></p>
+    <p>
+        <input type="submit" ng-disabled="!appInfoIsValid()" ng-click="addApp()">
+    </p>
+    <p ng-show="newAppInfo.hasResponse">{{newAppInfo.response}}</p>
+</div>
+
+<div>
+    <h3>Current apps</h3>
+    <ul>
+        <li ng-show="0 === appSummaries.length">
+            No apps.
+        </li>
+        <li ng-repeat="appSummary in appSummaries">
+            <a href="#/apps/{{appSummary.appIDSummary}}">{{appSummary.appNameSummary}}</a>
+            <p>{{appSummary.appDescriptionSummary}}</p>
+        </li>
+    </ul>
+</div>
