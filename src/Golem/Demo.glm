@@ -22,6 +22,18 @@ module LE where
   end
   
   
+  data family Quantifier end
+  
+  data instance Quantifier where
+    | Forall : Quantifier
+    | Exists : Quantifier
+  end
+  
+  
+  data Quant (q : Quantifier) (e : Entity) (r : Type) (s : r -> Type) end
+  
+  t : Type
+  t = Quant Forall e0 (exists (\x -> Pred Dog x)) (\x -> Pred Barker x)
   
   
   

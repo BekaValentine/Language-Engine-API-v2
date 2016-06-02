@@ -410,7 +410,7 @@ data PatternFF a r
   = ConPat Name [(Plicity,r)]
   | AssertionPat a
   | MakeMeta
-  deriving (Functor,Foldable)
+  deriving (Functor,Foldable,Traversable)
 
 
 instance Eq a => Eq1 (PatternFF a) where
@@ -648,6 +648,9 @@ externalH i a = In (External i (scope [] a))
 
 postulateH :: Term -> Term
 postulateH a = In (Postulate (scope [] a))
+
+mkStrH :: String -> Term
+mkStrH s = In (MkStr s)
 
 
 

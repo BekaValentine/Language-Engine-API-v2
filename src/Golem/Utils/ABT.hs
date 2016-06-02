@@ -1,8 +1,10 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 
@@ -26,12 +28,14 @@ module Golem.Utils.ABT where
 
 import Golem.Utils.BinaryF
 import Golem.Utils.Vars
+import Golem.Utils.Pretty
 
 import Control.Monad
+import qualified Control.Monad.State as S
 import Data.Bifunctor
 import Data.Binary
 import Data.Bitraversable
-import qualified Data.Foldable as F (foldl')
+import qualified Data.Foldable as F
 import Data.Functor.Classes
 import Data.List (elemIndex)
 import GHC.Generics
@@ -233,6 +237,105 @@ freeVars = fold fvAlgV fvAlgRec fvAlgSc
     
     fvAlgSc :: Int -> [FreeVar] -> [FreeVar]
     fvAlgSc _ ns = ns
+
+
+
+
+-- | 'freeVarNames' just gives back the free names for the free vars.
+
+freeVarNames :: (Functor f, Foldable f) => ABT f -> [String]
+freeVarNames = map (\(FreeVar n) -> n) . freeVars
+
+
+
+
+
+-- | The 'BinderNameSource' class captures the idea that some data constitutes
+-- a source for names in binders. For instance, the raw name in a lambda
+-- expression, or a pattern in a case expression, are both sources of names
+-- for a binding construct. The fundamental characteristic of such things is
+-- that they can have dummy variables which in concrete syntax are just
+-- underscores, but which ought to be converted into fresh names before an
+-- actual scope is formed. For example, @\_ -> M@ should become @\x -> M@ for
+-- some @x@ that's not used in @M@. Or similarly, the clause @Foo _ _ -> M@
+-- should become @Foo x x' -> M@ again where @x@ and @x'@ are not in @M@. The
+-- 'BinderNameSource' class represents this functionality.
+--
+-- These tools should be used during parse time to ensure that the result of
+-- parsing is always something sensible wrt dummy variables.
+
+class BinderNameSource a where
+  sourceNames :: a -> [String]
+  replaceDummies :: a -> [String] -> (a,[String])
+
+
+
+
+
+-- | A 'BinderNameSource' can have its dummy variables swapped for fresh names
+-- by getting its names, finding out how many dummies there are, generating
+-- that many fresh names, and then replacing the dummies.
+
+dummiesToFreshNames :: BinderNameSource a => [String] -> a -> a
+dummiesToFreshNames ns x =
+  let varNames = sourceNames x
+      dummies = filter ("_"==) varNames
+      newNamesToFreshen = take (length dummies) (repeat "x")
+      freshNames = freshen ns newNamesToFreshen
+  in fst (replaceDummies x freshNames)
+
+
+
+
+
+-- | A utility type to block generative instances.
+
+data BNSString = BNSString { unBNSString :: String }
+
+
+
+
+
+-- | A string is a 'BinderNameSource' in a trivial way.
+
+instance BinderNameSource BNSString where
+  sourceNames (BNSString x) = [x]
+  replaceDummies (BNSString "_") (n:ns) = (BNSString n,ns)
+  replaceDummies x ns = (x,ns)
+
+
+
+
+
+-- | A foldable traversable functor of 'BinderNameSource's is also a
+-- 'BinderNameSource'.
+
+instance (Functor f, Foldable f, Traversable f, BinderNameSource a)
+      => BinderNameSource (f a) where
+  sourceNames xs = F.fold (fmap sourceNames xs)
+  replaceDummies xs ns =
+    S.runState (traverse (S.state . replaceDummies) xs) ns
+
+
+
+
+
+-- | An 'ABT f' is a 'BinderNameSource' provided that 'f' is a foldable
+-- traversable functor. Then the names are just the 'freeVars'.
+
+instance (Functor f, Foldable f, Traversable f)
+      => BinderNameSource (ABT f) where
+  sourceNames x = [ n | FreeVar n <- freeVars x ]
+  replaceDummies x0 ns0 = S.runState (go x0) ns0
+    where
+      go (Var (Free (FreeVar "_"))) =
+        do n <- nextItem
+           return (Var (Free (FreeVar n)))
+      go (Var v) = return (Var v)
+      go (In x) = In <$> traverse (underF go) x
+      
+      nextItem :: S.State [a] a
+      nextItem = S.state (\(a:as) -> (a,as))
 
 
 
@@ -486,7 +589,8 @@ substScope l subs (Scope ns _ b) =
 instantiate :: (Functor f, Foldable f) => Scope f -> [ABT f] -> ABT f
 instantiate (Scope ns fns b) xs
   | length ns /= length xs =
-      error "Cannot instantiate along differing numbers of arguments."
+      error $ "Cannot instantiate along differing numbers of arguments: "
+        ++ show ns ++ ", " ++ show fns ++ ", " ++ show (length xs)
   | null ns = b
   | otherwise = subst 0 subs (unshift l l b')
     where
