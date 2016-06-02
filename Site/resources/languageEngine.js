@@ -1,767 +1,609 @@
+/*
+
+the LE interface is responsible for starting conversations, managing updates
+to the world model, pushing world model updates to the server, resetting the
+world model, sending a discourse move to the server, and handling/dispatching
+actions. to do this, it uses an object-representation of prolog-esque queries.
+instead of the prolog predicate
+
+    pred(foo,X)
+    
+we would write
+
+    pred("Foo", "x")
+
+instead of
+
+    rel(bar,x,b)
+    
+we would write
+
+    rel("Bar", a, b)
+
+there are a few tables/predicates, which correspond to the predicates of LE:
+
+  Pred : Predicate -> Entity -> Type
+  Rel : Relation -> Entity -> Entity -> Type
+  Negative : Entity -> Type
+  Foreground : Entity -> Type
+  StringVal : Entity -> String -> Type
+  
+the tables in the interface have the types
+
+  Pred : List (String * Entity)
+  Rel : List (String * Entity * Entity)
+  Negative : List Entity
+  Foreground : List Entity
+  StringVal : List (Entity * String)
+
+an atomic query, build by the above functions, is something of the type
+
+  { table : TableName, row : List (RowType table) }
+
+where `RowType table` is the type of the row for the table of interest. so for
+`table = "Pred"`, the row type is `String * Entity`, and so on.
+
+given an atomic query  { table = t, row = r }, and a unifier u, the first step
+in performing the atomic query is to substitute the unifier into the atomic
+query's row, to get a row template. then we bind the rows of the table through
+a function which maps each row to either the new unifier yielded by the row,
+or nothing if the fixed columns dont match. this gives a set of unifiers.
+
+given an atomic query and a set of unifiers, we get a new set of unifiers by
+binding the quantifiers through the atomic query solver for each unifier.
+
+given a set of atomic queries, and a set of unifiers, we can pass the unifiers
+through the first query, to get a new set, then pass that through the next,
+and so on. solving a whole query is done by starting with the set consist of
+just the empty unifier.
+
+a row in a query consists of a list of tagged items. they're tagged either as
+variables, or as fixed values.
+
+*/
+
 'use strict';
 
-Array.prototype.maximum = function (def) {
-  if (0 === this.length) {
-    return def;
-  } else {
-    var max = this[0];
-    for (var i = 1; i < this.length; i++) {
-      if (this[i] > max) {
-        max = this[i];
+
+
+function MakeLanguageEngine() {
+  // zip : ([a],[b]) -> [(a,b)]
+  let zip = function (as, bs) {
+    var cs = [];
+    
+    for (var i = 0; i < Math.min(as.length, bs.length); i++) {
+      cs.push([as[i],bs[i]]);
+    }
+    
+    return cs;
+  };
+  
+  // mjoin : [[a]] -> [a]
+  let mjoin = function (xss) {
+     return xss.reduce((acc,xs) => acc.concat(xs), []);
+  };
+  
+  // mbind :: ([a],a -> [b]) -> [b]
+  let mbind = function (xs,f) {
+    return mjoin(xs.map(f));
+  };
+  
+  // lookup :: (a, [(a,b)]) -> Nullable b
+  let lookup = function (x, xys) {
+    for (var i = 0; i < xys.length; i++) {
+      if (x === xys[i][0]) {
+        return xys[i][1];
       }
     }
-    return max;
-  }
-};
-Array.prototype.append = function (xs) {
-  var copy = [];
-  
-  for (var i = 0; i < this.length; i++) {
-    copy.push(this[i]);
-  }
-  for (var i = 0; i < xs.length; i++) {
-    copy.push(xs[i]);
-  }
-  
-  return copy;
-};
-Array.prototype.dropWhile = function (p) {
-  var i;
-  for (i = 0; i < this.length; i++) {
-    if (!p(this[i])) { break; }
-  }
-  
-  return this.slice(i);
-};
-
-var LanguageEngine = {
-  sigils: {
-    reverse: '-',
-    event: '!'
-  }
-};
-
-// World Model Controller
-LanguageEngine.Conversation = function (apiURL, appID) {
-  
-  this.apiInfo = {
-    apiURL: apiURL,
-    appID: appID
+    
+    return null;
   };
   
-  this.convoID = null;
-  this.worldModel = null;
-  this.entityData = {};
-  
-  this.handlers = {};
-  this.hasUpdates = false;
-  this.worldModelUpdate = {
-    newEntities: [],
-    newEvents: [],
-    newEventFacts: [],
-    newEntityFacts: []
+  // withLookup :: (a, [(a,b)], () -> r, b -> r) -> r
+  let withLookup = function (x, xys, n, j) {
+    for (var i = 0; i < xys.length; i++) {
+      if (x === xys[i][0]) {
+        return j(xys[i][1]);
+      }
+    }
+    
+    return n();
   };
   
-};
-LanguageEngine.Conversation.prototype.connect = function () {
-  var promise = new LanguageEngine.Promise();
-  var self = this;
-  var req = new XMLHttpRequest();
   
-  req.onload = function (data) {
-    if (201 === req.status) {
-      var convoInfo = JSON.parse(req.responseText);
-      if (convoInfo) {
-        self.convoID = convoInfo.conversationID;
-        self.worldModel = {
-          entities: [],
-          nextEntity: 0,
-          events: [],
-          nextEvent: 0,
-          eventFacts: {},
-          eventReverse: {},
-          entityReverse: {},
-          entityFacts: {}
-        };
-        promise.succeed();
+  
+  let LanguageEngine = {};
+  
+  
+  
+  
+  //
+  // HTTP request handlers
+  //
+  
+  // HTTP : HTTPInfo -> ()
+  LanguageEngine.HTTP = function (info){
+    let req = new XMLHttpRequest();
+    
+    req.onload = function () {
+      if (200 === req.status) {
+        if (info.success) { info.success(req); }
       } else {
-        promise.fail();
+        if (info.failure) { info.failure(req); }
       }
-    } else {
-      promise.fail();
-    }
-  };
-  
-  req.open('post', this.apiInfo.apiURL + '/conversations', true);
-  req.setRequestHeader('Content-Type', 'application/json');
-  
-  req.send(JSON.stringify({
-    appIDConfig: this.apiInfo.appID
-  }));
-  
-  
-  return promise;
-};
-LanguageEngine.Conversation.prototype.makeEntity = function (options) {
-  var ent = new LanguageEngine.Entity(this, this.worldModel.nextEntity);
-  
-  this.worldModel.nextEntity++;
-  this.worldModel.entities.push(ent.id);
-  this.worldModelUpdate.newEntities.push(ent.id);
-  
-  this.entityData[ent.id] = options.data;
-  
-  this.ensureEntity(ent);
-  if (options) {
-    
-    if (options.coargs) {
-      for (var rel in options.coargs) {
-        if ('stringVal' === rel) {
-          this.assertStringVal(ent, options.coargs[rel]);
-        } else {
-          var coargs = options.coargs[rel] instanceof Array ?
-                         options.coargs[rel] :
-                         [options.coargs[rel]];
-          for (var i = 0; i < coargs.length; i++) {
-            this.assertRelation(rel, ent, coargs[i]);
-          }
-        }
-      }
-    }
-    
-  }
-  return ent;
-};
-LanguageEngine.Conversation.prototype.makeEvent = function (options) {
-  var ev = new LanguageEngine.Event(this, this.worldModel.nextEvent);
-  this.worldModel.nextEvent++;
-  this.worldModel.events.push(ev.id);
-  this.worldModelUpdate.newEvents.push(ev.id);
-  
-  this.ensureEvent(ev);
-  
-  if (options) {
-    
-    if (options.pred) {
-      this.assertPredicate(options.pred, ev);
-    }
-    
-    if (options.args) {
-      for (var rel in options.args) {
-        var args = options.args[rel] instanceof Array ?
-                     options.args[rel] :
-                     [options.args[rel]];
-        for (var i = 0; i < args.length; i++) {
-          this.assertRelation(rel, ev, args[i]);
-        }
-      }
-    }
-    
-  }
-  
-  return ev;
-};
-LanguageEngine.Conversation.prototype.ent = function (coargs) {
-  return this.makeEntity({ coargs: coargs })
-};
-LanguageEngine.Conversation.prototype.dataEnt = function (data,coargs) {
-  return this.makeEntity({ data: data, coargs: coargs });
-};
-LanguageEngine.Conversation.prototype.ev = function (pred, args) {
-  return this.makeEvent({ pred: pred, args: args });
-};
-LanguageEngine.Conversation.prototype.ensureEntity = function (ent) {
-  this.worldModel.entityFacts[ent.id] = this.worldModel.entityFacts[ent.id] || {
-    stringVal: null
-  };
-  this.worldModel.entityReverse[ent.id] = this.worldModel.entityReverse[ent.id] || {};
-};
-LanguageEngine.Conversation.prototype.ensureEvent = function (ev) {
-  this.worldModel.eventFacts[ev.id] = this.worldModel.eventFacts[ev.id] || {
-    pred: null,
-    args: {}
-  };
-  this.worldModel.eventReverse[ev.id] = this.worldModel.eventReverse[ev.id] || {};
-}
-LanguageEngine.Conversation.prototype.assertStringVal = function (ent,s) {
-  this.hasUpdates = true;
-  this.ensureEntity(ent);
-  this.worldModel.entityFacts[ent.id].stringVal = s;
-  
-  var entrep = {
-    tag: -1 === this.worldModelUpdate.newEntities.indexOf(ent.id) ?
-           'OldEntity' :
-           'NewEntity' ,
-    contents: ent.id
-  };
-  
-  this.worldModelUpdate.newEntityFacts.push({
-    tag: 'StringVal',
-    entityRep: entrep,
-    strVal: s
-  });
-};
-LanguageEngine.Conversation.prototype.assertPredicate = function (pred,ev) {
-  this.hasUpdates = true;
-  this.ensureEvent(ev);
-  this.worldModel.eventFacts[ev.id].pred = pred;
-  
-  var evrep = {
-    tag: -1 === this.worldModelUpdate.newEvents.indexOf(ev.id) ?
-           'OldEvent' :
-           'NewEvent' ,
-    contents: ev.id
-  };
-  
-  this.worldModelUpdate.newEventFacts.push({
-    tag: 'EventPredicate',
-    eventPred: pred,
-    eventPredEventRep: evrep
-  });
-};
-LanguageEngine.Conversation.prototype.assertRelation = function (rel,ev,other) {
-  this.hasUpdates = true;
-  this.ensureEvent(ev);
-  
-  var reverse = rel.charAt(0) === LanguageEngine.sigils.reverse;
-  if (reverse) { rel = rel.slice(1); }
-  
-  var eventEvent = rel.charAt(0) === LanguageEngine.sigils.event;
-  if (eventEvent) {
-    // rel : Event -> Event -> Prop
-    this.ensureEvent(ev);
-    this.ensureEvent(other);
-    if (reverse) {
-      // e <--rel-- o
-      this.worldModel.eventReverse[ev.id][rel] = this.worldModel.eventReverse[ev.id][rel] || [];
-      this.worldModel.eventReverse[ev.id][rel].push(other.id);
-      // o --rel--> e
-      this.worldModel.eventFacts[other.id].args[rel] = this.worldModel.eventFacts[other.id].args[rel] || [];
-      this.worldModel.eventFacts[other.id].args[rel].push(ev.id);
-    } else {
-      // e --rel--> o
-      this.worldModel.eventFacts[ev.id].args[rel] = this.worldModel.eventFacts[ev.id].args[rel] || [];
-      this.worldModel.eventFacts[ev.id].args[rel].push(other.id)
-      // o <--rel-- e
-      this.worldModel.eventReverse[other.id][rel] = this.worldModel.eventReverse[other.id][rel] || [];
-      this.worldModel.eventReverse[other.id][rel].push(ev.id);
-    }
-  } else {
-    // rel : Event -> Entity -> Prop
-    if (reverse) {
-      this.ensureEntity(ev);
-      this.ensureEvent(other);
-      // e <--rel-- o
-      this.worldModel.entityReverse[ev.id][rel] = this.worldModel.entityReverse[ev.id][rel] || []
-      this.worldModel.entityReverse[ev.id][rel].push(other.id)
-      // o --rel--> e
-      this.worldModel.eventFacts[other.id].args[rel] = this.worldModel.eventFacts[other.id].args[rel] || [];
-      this.worldModel.eventFacts[other.id].args[rel].push(ev.id)
-    } else {
-      this.ensureEvent(ev);
-      this.ensureEntity(other);
-      // e --rel--> o
-      this.worldModel.eventFacts[ev.id].args[rel] = this.worldModel.eventFacts[ev.id].args[rel] || [];
-      this.worldModel.eventFacts[ev.id].args[rel].push(other.id);
-      // o <--rel-- e
-      this.worldModel.entityReverse[other.id][rel] = this.worldModel.entityReverse[other.id][rel] || [];
-      this.worldModel.entityReverse[other.id][rel].push(ev.id);
-    }
-  }
-  
-  if (eventEvent) {
-    var evrep = {
-      tag: -1 === this.worldModelUpdate.newEvents.indexOf(ev.id) ?
-             'OldEvent' :
-             'NewEvent' ,
-      contents: ev.id
     };
     
-    var otherrep = {
-      tag: -1 === this.worldModelUpdate.newEvents.indexOf(other.id) ?
-             'OldEvent' :
-             'NewEvent' ,
-      contents: other.id
-    };
+    req.open(info.method, info.url, true);
     
-    this.worldModelUpdate.newEventFacts.push({
-      tag: 'EventEventRelation',
-      eventEventRel: rel.slice(1), // slice 1 because ev-ev's start with =
-      eventEventRelEventRep: reverse ? otherrep : evrep,
-      eventEventRelArg: reverse ? evrep : otherrep
-    });
-  } else {
-    if (reverse) {
-      var evrep = {
-        tag: -1 === this.worldModelUpdate.newEntities.indexOf(ev.id) ?
-               'OldEntity' :
-               'NewEntity' ,
-        contents: ev.id
-      };
-      
-      var otherrep = {
-        tag: -1 === this.worldModelUpdate.newEvents.indexOf(other.id) ?
-               'OldEvent' :
-               'NewEvent' ,
-        contents: other.id
-      };
-      
-      this.worldModelUpdate.newEventFacts.push({
-        tag: 'EventEntityRelation',
-        eventEntityRel: rel,
-        eventEntityRelEventRep: otherrep,
-        eventEntityRelArg: evrep
-      });
-    } else {
-      var evrep = {
-        tag: -1 === this.worldModelUpdate.newEvents.indexOf(ev.id) ?
-               'OldEvent' :
-               'NewEvent' ,
-        contents: ev.id
-      };
-      
-      var otherrep = {
-        tag: -1 === this.worldModelUpdate.newEntities.indexOf(other.id) ?
-               'OldEntity' :
-               'NewEntity' ,
-        contents: other.id
-      };
-      
-      this.worldModelUpdate.newEventFacts.push({
-        tag: 'EventEntityRelation',
-        eventEntityRel: rel,
-        eventEntityRelEventRep: evrep,
-        eventEntityRelArg: otherrep
-      });
+    if (info.headers) {
+      for (var i = 0; i < info.headers.length; i++) {
+        req.setRequestHeader(info.headers[i][0], info.headers[i][1]);
+      }
     }
-  }
-};
-LanguageEngine.Conversation.prototype.pushUpdates = function () {
-  var updateInfo = {
-    tag: 'ConversationUpdateWorldModel',
-    newEntities: this.worldModelUpdate.newEntities,
-    newEvents: this.worldModelUpdate.newEvents,
-    newEntityFacts: this.worldModelUpdate.newEntityFacts,
-    newEventFacts: this.worldModelUpdate.newEventFacts
-  };
-  var promise = new LanguageEngine.Promise();
-  var req = new XMLHttpRequest();
-  req.onload = function () {
-    if (200 === req.status) {
-      promise.succeed();
+    
+    if (info.data) {
+      req.setRequestHeader("Content-Type", "application/json");
+      req.send(JSON.stringify(info.data));
     } else {
-      promise.fail();
+      req.send();
     }
   };
-  req.open('put', this.apiInfo.apiURL + '/conversations/' + this.convoID.toString(), true);
-  req.setRequestHeader("Content-Type", "application/json");
-  req.send(JSON.stringify(updateInfo));
   
-  var self = this;
+  //
+  //  Query-builders
+  //
   
-  promise.success(function () {
-    self.hasUpdates = false;
-    self.worldModelUpdate.newEntities = [];
-    self.worldModelUpdate.newEvents = [];
-    self.worldModelUpdate.newEntityFacts = [];
-    self.worldModelUpdate.newEventFacts = [];
-    
-    var wm = JSON.parse(req.responseText).newWorldModel;
-    console.log(LanguageEngine.Conversation.convertWorldModel(wm));
-  });
-  
-  
-  return promise;
-};
-LanguageEngine.Conversation.prototype.resetWorldModel = function () {
-  var updateInfo = {
-    tag: 'ConversationUpdateWorldModel',
-    contents: []
+  // atomicQuery : (TableName,QueryRow) -> AtomicQuery
+  LanguageEngine.atomicQuery = function (table, row) {
+    return { table: table, row: row };
   };
-  var promise = new LanguageEngine.Promise();
-  var req = new XMLHttpRequest();
-  req.onload = function () {
-    if (200 === req.status) {
-      promise.succeed();
+  
+  // pred : (String|Var, Int|Var) -> AtomicQuery
+  LanguageEngine.pred = function (p, x) {
+    return LanguageEngine.atomicQuery("Pred", [p,x]);
+  };
+  
+  // rel : (String, String|Int, String|Int) -> AtomicQuery
+  LanguageEngine.rel = function (r, x, y) {
+    return LanguageEngine.atomicQuery("Rel", [r,x,y]);
+  };
+  
+  // nonexistant : String|Int -> AtomicQuery
+  LanguageEngine.nonexistant = function (x) {
+    return LanguageEngine.atomicQuery("Nonexistant", [x]);
+  };
+  
+  // foreground : String|Int -> AtomicQuery
+  LanguageEngine.foreground = function (x) {
+    return LanguageEngine.atomicQuery("Foreground", [x]);
+  };
+  
+  // stringVal : String|Int -> String -> AtomicQuery
+  LanguageEngine.stringVal = function (x, s) {
+    return LanguageEngine.atomicQuery("StringVal", [x,s]);
+  };
+  
+  
+  //
+  //  Unifiers
+  //
+  
+  // Unifier = [(String,Value)]
+  
+  // emptyU : Unifier
+  LanguageEngine.emptyU = [];
+  
+  // extendU : (String,Value,Unifier) -> Unifier
+  LanguageEngine.extendU = function (variable,value,tail) {
+    
+    return [{ variable: variable, value: value }].concat(tail);
+    
+  };
+  
+  // showUnifier : Unifier -> String
+  LanguageEngine.showUnifier = function (u) {
+    var acc = "{";
+    
+    for (var i = 0; i < u.length; i++) {
+      acc += i == 0 ? " " : ", ";
+      acc += u[i].variable + " = " + u[i].value.toString();
+    }
+    
+    return acc + " }"
+  };
+  
+  // showUnifiers : [Unifier] -> String
+  LanguageEngine.showUnifiers = function (us) {
+    return us.length == 0 ?
+             "nothing" :
+             us.map(LanguageEngine.showUnifier).join(" ; ");
+  };
+  
+  
+  //
+  //  Query Rows and Query Values
+  //
+  
+  // tag : (String,Value) -> QueryValue
+  LanguageEngine.tag = function (t,x) {
+    
+    return { tag: t, value: x };
+    
+  };
+  
+  // variable : String -> QueryValue
+  LanguageEngine.variable = function (x) {
+    return LanguageEngine.tag("variable",x);
+  };
+  
+  // value : Value -> QueryValue
+  LanguageEngine.value = function (x) {
+    return LanguageEngine.tag("value",x);
+  };
+  
+  // substituteQueryValue : (QueryValue,Unifier) -> QueryValue
+  LanguageEngine.substituteQueryValue = function (queryValue,unifier) {
+    if ("variable" === queryValue.tag) {
+      
+      return withLookup(queryValue.value, unifier,
+        () => queryValue,
+        x => LanguageEngine.tag("value",x));
+      
     } else {
-      promise.fail();
+      
+      return queryValue;
+      
     }
   };
-  req.open('put', this.apiInfo.apiURL + '/conversations/' + this.convoID.toString(), true);
-  req.setRequestHeader("Content-Type", "application/json");
-  req.send(JSON.stringify(updateInfo));
   
-  var self = this;
-  
-  promise.success(function () {
-    self.hasUpdates = false;
-    self.worldModelUpdate.newEntities = [];
-    self.worldModelUpdate.newEvents = [];
-    self.worldModelUpdate.newEntityFacts = [];
-    self.worldModelUpdate.newEventFacts = [];
+  // matchQueryValue : (QueryValue,ColumnValue,Unifier) -> [Unifier]
+  LanguageEngine.matchQueryValue = function (queryValue,columnValue,unifier) {
     
-    var wm = JSON.parse(req.responseText).newWorldModel;
-    console.log(LanguageEngine.Conversation.convertWorldModel(wm));
-  });
-  
-  
-  return promise;
-};
-LanguageEngine.Conversation.prototype.processInput = function (str) {
-  var discourseMoveInfo = {
-    tag: 'ConversationUpdateDiscourseMove',
-    move: str
-  };
-  var self = this;
-  var promise = new LanguageEngine.Promise();
-  
-  var req = new XMLHttpRequest();
-  req.onload = function () {
-    if (200 === req.status) {
-      promise.succeed();
-    } else {
-      promise.fail();
-    }
-  };
-  req.open('put', this.apiInfo.apiURL + '/conversations/' + this.convoID, true);
-  req.setRequestHeader("Content-Type", "application/json");
-  req.send(JSON.stringify(discourseMoveInfo));
-  
-  promise.success(function () {
+    let subQueryValue = LanguageEngine.
+                          substituteQueryValue(queryValue,unifier);
     
-    var parsed = JSON.parse(req.responseText);
-    
-    self.worldModel = LanguageEngine.Conversation.convertWorldModel(parsed.newWorldModel);
-    parsed.eventDescriptions.
-      map(function (ed) {
-        return self.convertEventDescription(ed);
-      }).
-      forEach(function (ed) {
-        self.dispatch(ed);
-      });
-    
-  });
-  
-  return promise;
-};
-LanguageEngine.Conversation.prototype.setDefaultHandler = function (callback) {
-  this.defaultHandler = callback;
-};
-LanguageEngine.Conversation.prototype.setHandler = function (pred, argRels, callback) {
-  this.handlers[pred] = this.handlers[pred] || new LanguageEngine.Trie();
-  var sortedArgRels = argRels.splice(0,[]).sort();
-  this.handlers[pred].insert(sortedArgRels, {
-    argRels: argRels,
-    callback: callback
-  });
-};
-LanguageEngine.Conversation.prototype.dispatch = function (desc) {
-  if (desc.foreground) {
-    var pred = desc.pred;
-    
-    if (this.handlers[pred]) {
-      var handlerInfo = this.handlers[pred].
-                          follow(Object.keys(desc.args).sort()).
-                          sort(function (a,b) { return b.value.argRels.length - a.value.argRels.length; }).
-                          shift();
-      if (handlerInfo) {
-        var args = [desc];
-        for (var i = 0; i < handlerInfo.value.argRels.length; i++) {
-          args.push(desc.args[handlerInfo.value.argRels[i]]);
-        }
+    if ("variable" === subQueryValue.tag) {
+      
+      return [LanguageEngine.
+                extendU(subQueryValue.value, columnValue, unifier)];
+      
+    } else if ("value" === subQueryValue.tag) {
+      
+      if (subQueryValue.value === columnValue) {
+        return [unifier];
+      } else {
+        return [];
+      }
         
-        handlerInfo.value.callback.apply(null, args);
-      } else {
-        this.defaultHandler(desc);
-      }
-      
-    } else if (this.defaultHandler) {
-      this.defaultHandler(desc);
     }
-  }
-};
-LanguageEngine.Conversation.convertWorldModel = function (wm) {
-  var worldModel = {
-    entities: wm.entities,
-    nextEntity: wm.entities.maximum(-1) + 1,
-    events: wm.events,
-    nextEvent: wm.events.maximum(-1) + 1,
-    eventFacts: {},
-    eventReverse: {},
-    entityReverse: {},
-    entityFacts: {}
   };
   
-  for (var i = 0; i < wm.entities.length; i++) {
-    var entID = wm.entities[i];
-    worldModel.entityFacts[entID] = {
-      stringVal: null
+  // matchQueryRow : (QueryRow,TableRow,Unifier) -> [Unifier]
+  LanguageEngine.matchQueryRow = function (queryRow,tableRow,unifier) {
+    return zip(queryRow,tableRow).
+             reduce((us, p) =>
+                      mbind(us, u =>
+                        LanguageEngine.matchQueryValue(p[0], p[1], u)),
+                    [unifier])
+  };
+  
+  
+  // DB = Map TableName [TableRow]
+  // TableRow = [Value]
+  
+  
+  // LanguageEngine.Conversation : (URL,AppID) -> Conversation
+  LanguageEngine.Conversation = function (apiURL, appID, appToken, callback) {
+    let self = this;
+    
+    self.apiURL = apiURL;
+    self.appID = appID.toString();
+    self.appToken = appToken;
+    self.conversationID = null;
+    
+    self.eventDescriptions = {
+      "Pred": [],
+      "Rel": [],
+      "Foreground": [],
+      "Nonexistant": [],
+      "StringVal": []
     };
-    worldModel.entityReverse[entID] = {};
-  }
-  
-  for (var i = 0; i < wm.events.length; i++) {
-   var evID = wm.events[i];
-   worldModel.eventFacts[evID] = { pred: null, args: {} }; 
-   worldModel.eventReverse[evID] = {};
-  }
-  
-  for (var i = 0; i < wm.eventFacts.length; i++) {
-    var evFact = wm.eventFacts[i];
-    
-    if ('EventPredicate' === evFact.tag) {
-      
-      var evID = evFact.eventPredEventRef;
-      worldModel.eventFacts[evID].pred = evFact.eventPred;
-      
-    } else if ('EventEntityRelation' === evFact.tag) {
-      
-      var evID = evFact.eventEntityRelEventRef;
-      
-      var rel = evFact.eventEntityRel;
-      var entID = evFact.eventEntityRelEntityArgRef;
-      
-      worldModel.eventFacts[evID].args[rel] = worldModel.eventFacts[evID].args[rel] || [];
-      worldModel.eventFacts[evID].args[rel].push(entID);
-      
-      if (entID >= 0) { // entID < 0 means its a purely internal ent, e.g. the user or computer
-        worldModel.entityReverse[entID][rel] = worldModel.entityReverse[entID][rel] || [];
-        worldModel.entityReverse[entID][rel].push(evID);
+    self.worldModel = {
+      nextEntity: 0,
+      facts: {
+        "Pred": [],
+        "Rel": [],
+        "Foreground": [],
+        "Nonexistant": [],
+        "StringVal": []
       }
-      
-    } else if ('EventEventRelation' === evFact.tag) {
-      
-      var evID = evFact.eventEventRelEventRef;
-      
-      var rel = LanguageEngine.sigils.event + evFact.eventEventRel;
-      var ev2ID = evFact.eventEventRelEventArgRef;
-      
-      worldModel.eventFacts[evID].args[rel] = worldModel.eventFacts[evID].args[rel] || [];
-      worldModel.eventFacts[evID].args[rel].push(ev2ID);
-      
-      worldModel.eventReverse[ev2ID][rel] = worldModel.eventReverse[ev2ID][rel] || [];
-      worldModel.eventReverse[ev2ID][rel].push(evID);
-      
-    }
-  }
-  
-  for (var i = 0; i < wm.entityFacts.length; i++) {
-    var entFact = wm.entityFacts[i];
+    };
+    self.worldModelUpdate = {
+      newNextEntity: 0,
+      newFacts: {
+        "Pred": [],
+        "Rel": [],
+        "Nonexistant": [],
+        "StringVal": []
+      }
+    };
+    self.entityData = [];
     
-    var entID = entFact.entityRef;
+    self.defaultHandler = null;
+    self.handlers = {};
     
-    if (entID >= 0) { // entID < 0 means its a purely internal ent, e.g. the user or computer
-      worldModel.entityFacts[entID].stringVal = entFact.stringVal;
-    }
-  }
-  
-  return worldModel;
-};
-LanguageEngine.Conversation.prototype.convertEventDescription = function (desc) {
-  var self = this;
-  var args = {};
-  
-  for (var rel in desc.eventArguments) {
-    args[rel] = desc.eventArguments[rel].map(function (evID) {
-      return new LanguageEngine.Event(self, evID);
+    LanguageEngine.HTTP({
+      method: 'post',
+      synchronous: true,
+      url: self.apiURL + '/apps/' + self.appID + '/conversations/',
+      data: { "tokenStringConfig": self.appToken },
+      success: function (req) {
+        let convoInfo = JSON.parse(req.responseText);
+        self.conversationID = convoInfo.conversationID.toString();
+        
+        if (callback) {
+          callback();
+        }
+      }
     });
-  }
-  for (var rel in desc.entityArguments) {
-    args[rel] = desc.entityArguments[rel].map(function (entID) {
-      return new LanguageEngine.Entity(self, entID);
-    });
-  }
-  
-  return {
-    event: new LanguageEngine.Event(this, desc.eventRef),
-    pred: desc.predicate,
-    foreground: desc.foreground,
-    nonexistent: desc.nonexistent,
-    args: args
   };
-};
-
-// Entity
-LanguageEngine.Entity = function (convoCtrl,id) {
-  this.conversationController = convoCtrl;
-  this.id = id;
-};
-LanguageEngine.Entity.prototype.isUser = function () {
-  return this.id === -1;
-};
-LanguageEngine.Entity.prototype.isComputer = function () {
-  return this.id === -2;
-};
-LanguageEngine.Entity.prototype.data = function () {
-  return this.conversationController.entityData[this.id];
-};
-LanguageEngine.Entity.prototype.setData = function (d) {
-  this.conversationController.entityData[this.id] = d;
-};
-LanguageEngine.Entity.prototype.stringVal = function () {
-  return this.conversationController.worldModel.entityFacts[this.id].stringVal;
-};
-LanguageEngine.Entity.prototype.any = function (rel, p) {
-  var reverse = rel.charAt(0) === LanguageEngine.sigils.reverse;
-  if (reverse) {
-    rel = rel.slice(1);
-  }
   
-  if (!reverse) {
-    console.error('Entities to not have arguments.');
-  } else if ('stringVal' === rel) {
-    console.error('Entities are not the string values of anything.');
-  }
-  
-  if (!this.conversationController.worldModel.entityReverse[this.id][rel]) { return false; }
-  var toTest = this.conversationController.worldModel.entityReverse[this.id][rel];
-  
-  for (var i = 0; i < toTest.length; i++) {
-    if(p(new LanguageEngine.Event(this.conversationController, toTest[i]))) { return true; }
-  }
-  
-  return false;
-};
-LanguageEngine.Entity.prototype.all = function (rel, p) {
-  return !this.any(rel, function (x) { return !p(x); });
-};
-
-// Event
-LanguageEngine.Event = function (convoCtrl,id) {
-  this.conversationController = convoCtrl;
-  this.id = id;
-};
-LanguageEngine.Event.prototype.pred = function () {
-  return this.conversationController.worldModel.eventFacts[this.id].pred;
-};
-LanguageEngine.Event.prototype.any = function (rel, p) {
-  var reverse = rel.charAt(0) === LanguageEngine.sigils.reverse;
-  if (reverse) {
-    rel = rel.slice(1);
-  }
-  
-  var eventEvent = rel.charAt(0) === LanguageEngine.sigils.event;
-  
-  var toTest;
-  if (eventEvent) {
-    // rel : Event -> Event -> Prop
-    if (reverse) {
-      if (!this.conversationController.worldModel.eventReverse[this.id][rel]) { return false; }
-      toTest = this.conversationController.worldModel.eventReverse[this.id][rel];
-    } else {
-      if (!this.conversationController.worldModel.eventFacts[this.id].args[rel]) { return false; }
-      toTest = this.conversationController.worldModel.eventFacts[this.id].args[rel];
-    }
+  // runQuery : [AtomicQuery] -> [Unifier]
+  LanguageEngine.Conversation.prototype.runQuery = function (atomicQueries, useEventDescriptions) {
+    var self = this;
     
-    for (var i = 0; i < toTest.length; i++) {
-      if(p(new LanguageEngine.Event(this.conversationController, toTest[i]))) { return true; }
-    }
-  } else {
-    // rel : Event -> Entity -> Prop
-    if (reverse) {
-      // e <--rel-- x
-      console.error('Can\'t test a reverse event-entity relation on an event.');
-    } else {
-      // e --rel--> x
-      if (!this.conversationController.worldModel.eventFacts[this.id].args[rel]) { return false; }
-      toTest = this.conversationController.worldModel.eventFacts[this.id].args[rel];
-    }
+    return atomicQueries.
+             reduce((us,q) => mbind(us, u => self.runAtomicQuery(q,u,useEventDescriptions)),
+                    [LanguageEngine.emptyU]);
+  };
+  
+  // runAtomicQuery : (AtomicQuery, Unifier, DB) -> [Unifier]
+  LanguageEngine.Conversation.prototype.runAtomicQuery = function (atomicQuery, unifier, useEventDescriptions) {
+    let dbTable = (useEventDescriptions ?
+                     this.eventDescriptions[atomicQuery.table] :
+                     this.worldModel.facts[atomicQuery.table]) ||
+                  [];
     
-    for (var i = 0; i < toTest.length; i++) {
-      if(p(new LanguageEngine.Entity(this.conversationController, toTest[i]))) { return true; }
+    return mbind(dbTable, tableRow =>
+             LanguageEngine.
+               matchQueryRow(atomicQuery.row,tableRow,unifier));
+  };
+  
+  // makeEntity : () -> Entity
+  LanguageEngine.Conversation.prototype.makeEntity = function () {
+    let e = this.worldModelUpdate.newNextEntity;
+    this.worldModelUpdate.newNextEntity++;
+    return e;
+  };
+  
+  // setEntityData : (Entity,Value) -> ()
+  LanguageEngine.Conversation.prototype.setEntityData = function (entity,data) {
+    this.entityData.push([entity,data]);
+  };
+  
+  // getEntityData : Entity -> Nullable Value
+  LanguageEngine.Conversation.prototype.getEntityData = function (entity) {
+    return lookup(entity, this.entityData);
+  };
+  
+  // assertPred : (String,Int) -> ()
+  LanguageEngine.Conversation.prototype.assertPred = function (p,x) {
+    if (typeof p === "string" && typeof x === "number") {
+      this.worldModelUpdate.newFacts["Pred"].push([p,x]);
     }
-  }
+  };
   
-  return false;
-};
-LanguageEngine.Event.prototype.all = function (rel, p) {
-  return !this.any(rel, function (x) { return !p(x); });
-};
-
-// Promise
-LanguageEngine.Promise = function () {
-  this.isReady = false;
-  this.didSucceed = false;
-  this.onSuccess = [];
-  this.onError = [];
-};
-LanguageEngine.Promise.prototype.succeed = function () {
-  this.isReady = true;
-  this.didSucceed = true;
-  for (var i = 0; i < this.onSuccess.length; i++) {
-    setTimeout(this.onSuccess[i]);
-  }
-};
-LanguageEngine.Promise.prototype.fail = function () {
-  this.isReady = true;
-  this.didSucceed = false;
-  for (var i = 0; i < this.onError.length; i++) {
-    setTimeout(this.onError[i]);
-  }
-};
-LanguageEngine.Promise.prototype.success = function (callback) {
-  if (this.isReady) {
-    if (this.didSucceed) {
-      setTimeout(callback);
+  // assertRel : (String,Int,Int) -> ()
+  LanguageEngine.Conversation.prototype.assertRel = function (r,x,y) {
+    if (typeof r === "string" && typeof x === "number" && typeof y == "number") {
+      this.worldModelUpdate.newFacts["Rel"].push([r,x,y]);
     }
-  } else {
-    this.onSuccess.push(callback);
-  }
+  };
   
-  return this;
-};
-LanguageEngine.Promise.prototype.error = function (callback) {
-  if (this.isReady) {
-    if (!this.didSucceed) {
-      setTimeout(callback);
+  // assertStringVal : (Int,String) -> ()
+  LanguageEngine.Conversation.prototype.assertStringVal = function (x,s) {
+    if (typeof x === "number" && typeof s === "string") {
+      this.worldModelUpdate.newFacts["StringVal"].push([x,s]);
     }
-  } else {
-    this.onError.push(callback);
-  }
+  };
   
-  return this;
-};
-
-// Trie
-LanguageEngine.Trie = function (value) {
-  this.value = value;
-  this.daughters = {};
-};
-LanguageEngine.Trie.prototype.insert = function (path, value) {
-  if (0 === path.length) {
-    this.value = value;
-  } else {
-    var key = path.shift()
-    var next = this.daughters[key];
-    if (next) {
-      next.insert(path, value);
-    } else {
-      this.daughters[key] = new LanguageEngine.Trie();
-      this.daughters[key].insert(path, value)
+  // assertNonexistant : Int -> ()
+  LanguageEngine.Conversation.prototype.assertNonexistant = function (x) {
+    if (typeof x === "number") {
+      this.worldModelUpdate.newFacts["Nonexistant"].push([x]);
     }
-  }
-};
-LanguageEngine.Trie.prototype.follow = function (sortedPath) {
-  var matches = [];
+  };
   
-  if (this.value) {
-    matches = matches.append([{ keys: [], value: this.value }]);
-  }
+  // pushUpdates : () -> ()
+  LanguageEngine.Conversation.prototype.pushUpdates = function () {
+    let self = this;
+    
+    LanguageEngine.HTTP({
+      method: 'put',
+      url: self.apiURL + '/apps/' + self.appID + '/conversations/' + self.conversationID,
+      data: {
+        "tokenStringUpdate": self.appToken,
+        "updateInfo": {
+          "tag": "ConversationUpdateWorldModel",
+          "newNextEntity": self.worldModelUpdate.newNextEntity,
+          "newFacts": LanguageEngine.databaseToEventDescriptions(self.worldModelUpdate.newFacts)
+        }
+      }
+    });
+  };
   
-  if (0 !== sortedPath.length) {
-    for (var key in this.daughters) {
-      var nextPath = sortedPath.dropWhile(function (ps) { return ps < key; });
-      var pathSegment = nextPath.shift();
-      if (key === pathSegment) {
-        var recs = this.daughters[key].follow(nextPath);
-        matches = matches.append(recs.map(function (rec) {
-          rec.keys.unshift(key);
-          return rec;
-        }));
+  // resetWorldModel : () -> ()
+  LanguageEngine.Conversation.prototype.resetWorldModel = function () {
+    let self = this;
+    
+    LanguageEngine.HTTP({
+      method: 'put',
+      url: self.apiURL + '/apps/' + self.appID + '/conversations/' + self.conversationID,
+      data: {
+        "tokenStringUpdate": self.appToken,
+        "updateInfo": {
+          "tag": "ConversationUpdateResetWorldModel"
+        }
+      }
+    });
+  };
+  
+  // processInput : (String, Callback) -> EventDescriptions
+  LanguageEngine.Conversation.prototype.processInput = function (str) {
+    let self = this;
+    
+    LanguageEngine.HTTP({
+      method: 'put',
+      url: self.apiURL + '/apps/' + self.appID + '/conversations/' + self.conversationID,
+      data: {
+        "tokenStringUpdate": self.appToken,
+        "updateInfo": {
+          "tag": "ConversationUpdateDiscourseMove",
+          "move": str
+        }
+      },
+      success: function (req) {
+        
+        let res = JSON.parse(req.responseText);
+        let newEventDescriptions = LanguageEngine.eventDescriptionsToDatabase(res.change.facts);
+        let newWorldModel = {
+          nextEntity: res.change.worldModel.nextEntity,
+          facts: LanguageEngine.eventDescriptionsToDatabase(res.change.worldModel.facts)
+        };
+        let newWorldModelUpdate = {
+          newNextEntity: res.change.worldModel.nextEntity,
+          newFacts: []
+        };
+        
+        self.eventDescriptions = newEventDescriptions;
+        self.worldModel = newWorldModel;
+        self.worldModelUpdate = newWorldModelUpdate;
+        
+        self.dispatch();
+      }
+    });
+  };
+  
+  // eventDescriptionsToDatabase : [EventDescription] -> DB
+  LanguageEngine.eventDescriptionsToDatabase = function (eds) {
+    let db = {};
+    
+    for (var i = 0; i < eds.length; i++) {
+      let fact = eds[i];
+      let tag = fact.tag;
+      let args = fact.contents;
+      
+      if ("PredDesc" === tag) {
+        
+        db["Pred"] = db["Pred"] || [];
+        db["Pred"].push(args);
+        
+      } else if ("RelDesc" === tag) {
+        
+        db["Rel"] = db["Rel"] || [];
+        db["Rel"].push(args);
+        
+      } else {
+        
+        let p = args.shift();
+        db[p] = db[p] || [];
+        db[p].push(args);
+        
       }
     }
-  }
+    
+    return db;
+  };
   
-  return matches;
-};
+  // databaseToEventDescriptions : DB -> [EventDescription]
+  LanguageEngine.databaseToEventDescriptions = function (db) {
+    let preds = db["Pred"].map(p => ({ "tag": "PredDesc", "contents": p }));
+    let rels = db["Rel"].map(t => ({ "tag": "RelDesc", "contents": t }));
+    let nonexs = db["Nonexistant"].map(s => ({ "tag": "UnaryDesc", "contents": ["Nonexistant", s[0]] }));
+    let strvals = db["StringVal"].map(p => ({ "tag": "BinaryStringDesc", "contents": ["StringVal", p[0], p[1]] }));
+    
+    return preds.concat(rels,nonexs,strvals);
+  };
+  
+  // dispatch : () -> ()
+  LanguageEngine.Conversation.prototype.dispatch = function () {
+    let q = [ LanguageEngine.foreground(LanguageEngine.variable("e")) ,
+              LanguageEngine.pred(LanguageEngine.variable("p"),
+                                  LanguageEngine.variable("e")) ];
+    let res = this.runQuery(q, true);
+    
+    if (res.length === 1) {
+      let event = lookup("e", res[0]);
+      let pred = lookup("p", res[0]);
+      
+      let relq = [ LanguageEngine.rel(LanguageEngine.variable("r"),
+                                      LanguageEngine.value(event),
+                                      LanguageEngine.variable("x")) ];
+      
+      let relRes = this.runQuery(relq, true);
+      
+      let rels = [];
+      let relArgs = {};
+      
+      for (var i = 0; i < relRes.length; i++) {
+        var resi = relRes[i];
+        var r = lookup("r", resi);
+        var x = lookup("x", resi);
+        
+        rels.push(r)
+        relArgs[r] = relArgs[r] || [];
+        relArgs[r].push(x);
+      }
+      
+      let handlerInfo = this.findHandler(pred, rels);
+      
+      if (handlerInfo) {
+          handlerInfo.handler.apply(handlerInfo.map(r => relArgs[r]));
+      }
+    }
+  };
+  
+  // setDefaultHandler : (Event -> ()) -> ()
+  LanguageEngine.Conversation.prototype.setDefaultHandler = function (h) {
+    this.defaultHandler = h;
+  };
+  
+  // setHandler : (String,[String],Event -> ()) -> ()
+  LanguageEngine.Conversation.prototype.setHandler = function (pred,rels,h) {
+    this.handlers[pred] = this.handlers[pred] || [];
+    
+    let sortedRels = rels.sort();
+    this.handlers[pred].push({ rels: rels, sortedRels: sortedRels, handler: h });
+  };
+  
+  // findHandler : (String,[String]) -> Nullable (Event -> ())
+  LanguageEngine.Conversation.prototype.findHandler = function (goalPred,goalRels) {
+    let sortedGoalRels = goalRels.sort();
+    
+    let foundHandlers = (this.handlers[goalPred] || []).
+                          filter(h => subset(h.sortedRels, sortedGoalRels)).
+                          sort((h1,h2) => h1.sortedRels.length <= h2.sortedRels.length);
+    
+    return foundHandlers[0] || this.defaultHandler;
+  };
+  
+  
+  
+  
+  
+  
+  return LanguageEngine;
+}
 
+
+let LE = MakeLanguageEngine();
+let pred = LE.pred;
+let rel = LE.rel;
+let vb = LE.variable;
+let vl = LE.value;
+
+let convo = new LE.Conversation("http://localhost:8080/api", 7, "m8RENOb3dhgj6fEdUyQWzTgLWAYJgm",
+  function () {
+    convo.processInput("a dog barked barked");
+  }
+);
