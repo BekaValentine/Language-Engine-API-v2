@@ -3,7 +3,16 @@ testing:
   conversations
 
 to build:
+  
+  parse failures have mysterious locations b/c all files is parsed as a single blob
+  
+  renaming a module causes headaches when building on file-save
+  
   test conversations
+    works for the test file
+  
+  JS kit redo
 
 figure out why parsing is so slow
   hypothesis: lots of identical prefixes
+  but it doesnt happen unless there's a quote or something like that
