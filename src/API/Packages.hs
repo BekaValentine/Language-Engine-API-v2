@@ -25,6 +25,7 @@ import Control.Monad.IO.Class ()
 import Data.Aeson
 import qualified Data.Binary as B
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy.Char8 (pack)
 import GHC.Generics
 import qualified Database.PostgreSQL.Simple as DB
 import Servant
@@ -48,11 +49,9 @@ data PackageSummary
     , packageUsesPreludeSummary :: Bool
     , packageIsPreludeSummary :: Bool
     , packageIsPublicSummary :: Bool
-    , packageNeedsBuildSummary :: Bool
     }
   deriving (Generic)
 
-instance FromJSON PackageSummary
 instance ToJSON PackageSummary
 
 
@@ -71,12 +70,10 @@ data Package
     , packageUsesPrelude :: Bool
     , packageIsPrelude :: Bool
     , packageIsPublic :: Bool
-    , packageNeedsBuild :: Bool
     , fileSummaries :: [FileSummary]
     }
   deriving (Generic)
 
-instance FromJSON Package
 instance ToJSON Package
 
 
@@ -92,7 +89,6 @@ data PackageConfig
   deriving (Generic)
 
 instance FromJSON PackageConfig
-instance ToJSON PackageConfig
 
 
 
@@ -112,23 +108,6 @@ data PackageUpdate
   deriving (Generic)
 
 instance FromJSON PackageUpdate
-instance ToJSON PackageUpdate
-
-
-
-
-
--- | A 'Build' consists of an optional error message. If a build is
--- successful, no error message is returned.
-
-data Build
-  = Build
-    { errorMessage :: Maybe String
-    }
-  deriving (Generic)
-
-instance FromJSON Build
-instance ToJSON Build
 
 
 
@@ -144,7 +123,6 @@ data FileSummary
     }
   deriving (Generic)
 
-instance FromJSON FileSummary
 instance ToJSON FileSummary
 
 
@@ -162,7 +140,6 @@ data File
     }
   deriving (Generic)
 
-instance FromJSON File
 instance ToJSON File
 
 
@@ -179,7 +156,6 @@ data FileConfig
   deriving (Generic)
 
 instance FromJSON FileConfig
-instance ToJSON FileConfig
 
 
 
@@ -197,7 +173,6 @@ data FileUpdate
   deriving (Generic)
 
 instance FromJSON FileUpdate
-instance ToJSON FileUpdate
 
 
 
@@ -342,10 +317,6 @@ type PackagesAPI =
          :> BasicAuth "le-realm" Auth.Authorization
          :> Delete '[JSON] ()
   
-  :<|> "packages" :> CaptureID :> "build"
-         :> BasicAuth "le-realm" Auth.Authorization
-         :> Put '[JSON] Build
-  
   :<|> "packages" :> CaptureID :> "files"
          :> BasicAuth "le-realm" Auth.Authorization
          :> ReqBody '[JSON] FileConfig
@@ -375,7 +346,6 @@ packagesServer conn =
   :<|> packages_id_get conn
   :<|> packages_id_put conn
   :<|> packages_id_delete conn
-  :<|> packages_id_build_put conn
   :<|> packages_id_files_post conn
   :<|> packages_id_files_id_get conn
   :<|> packages_id_files_id_put conn
@@ -394,16 +364,15 @@ packages_get
                :> BasicAuth "le-realm" Auth.Authorization
                :> Get '[JSON] [PackageSummary])
 packages_get conn auth =
-  do pkgs :: [(PackageID,String,String,UserID,Bool,Bool,Bool,Bool)]
+  do pkgs :: [(PackageID,String,String,UserID,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
-            " SELECT                                 \
-            \   id, name, description, owner,        \
-            \   uses_prelude, is_prelude, is_public, \
-            \   needs_build                          \
-            \ FROM packages                          \
-            \ WHERE owner = ?                        \
-            \ OR is_public = true                    "
+            " SELECT                                \
+            \   id, name, description, owner,       \
+            \   uses_prelude, is_prelude, is_public \
+            \ FROM packages                         \
+            \ WHERE owner = ?                       \
+            \ OR is_public = true                   "
             (DB.Only (Auth.userID auth))
      return [ PackageSummary
               { packageIDSummary = pid
@@ -413,9 +382,8 @@ packages_get conn auth =
               , packageUsesPreludeSummary = up
               , packageIsPreludeSummary = isp
               , packageIsPublicSummary = ispub
-              , packageNeedsBuildSummary = nb
               }
-            | (pid,nme,desc,owner,up,isp,ispub,nb) <- pkgs
+            | (pid,nme,desc,owner,up,isp,ispub) <- pkgs
             ]
        
 
@@ -437,11 +405,11 @@ packages_post conn auth (PackageConfig nme) =
   do packageCreateRows :: [DB.Only PackageID]
        <- liftIO $ DB.query
             conn
-            " INSERT INTO packages \
-            \   (name,owner)       \
-            \ VALUES (?, ?)        \
-            \ RETURNING id         "
-            (nme, Auth.userID auth)
+            " INSERT INTO packages         \
+            \   (name,owner,build_product) \
+            \ VALUES (?, ?, ?)             \
+            \ RETURNING id                 "
+            (nme, Auth.userID auth, DB.Binary (B.encode emptyExtract))
      case packageCreateRows of
        [DB.Only pid] ->
          return PackageSummary
@@ -452,7 +420,6 @@ packages_post conn auth (PackageConfig nme) =
                 , packageUsesPreludeSummary = True
                 , packageIsPreludeSummary = False
                 , packageIsPublicSummary = False
-                , packageNeedsBuildSummary = False
                 }
        _ -> throwError err500
 
@@ -470,20 +437,19 @@ packages_id_get
                :> Get '[JSON] Package)
 packages_id_get conn pid auth =
   do ensureUserAuthorizedToView conn pid (Auth.userID auth)
-     foundPkgs :: [(String,String,UserID,Bool,Bool,Bool,Bool)]
+     foundPkgs :: [(String,String,UserID,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
-            " SELECT                                 \
-            \   name, description, owner,            \
-            \   uses_prelude, is_prelude, is_public, \
-            \   needs_build                          \
-            \ FROM packages                          \
-            \ WHERE id = ?                           "
+            " SELECT                                \
+            \   name, description, owner,           \
+            \   uses_prelude, is_prelude, is_public \
+            \ FROM packages                         \
+            \ WHERE id = ?                          "
             (DB.Only pid)
      case foundPkgs of
        [] -> throwError err404
        _:_:_ -> throwError err500
-       [(nme,desc,owner,up,isp,ispub,nb)] ->
+       [(nme,desc,owner,up,isp,ispub)] ->
          do foundFiles :: [(FileID,String,String)]
               <- liftIO $ DB.query
                    conn
@@ -497,7 +463,6 @@ packages_id_get conn pid auth =
                      , packageUsesPrelude = up
                      , packageIsPrelude = isp
                      , packageIsPublic = ispub
-                     , packageNeedsBuild = nb
                      , fileSummaries =
                        [ FileSummary fid fnme fdesc
                        | (fid,fnme,fdesc) <- foundFiles
@@ -607,56 +572,11 @@ packages_id_delete conn pid auth =
             conn
             "DELETE FROM files WHERE package = ?"
             (DB.Only pid)
+     _ <- liftIO $ DB.execute
+            conn
+            "UPDATE apps SET packages = array_remove(packages,?)"
+            (DB.Only pid)
      return ()
-
-
-
-
-
--- | We can build a package by @PUT@ing to @/packages/:id/build@.
-
-packages_id_build_put
-  :: DB.Connection
-  -> Server ("packages" :> CaptureID :> "build"
-               :> BasicAuth "le-realm" Auth.Authorization
-               :> Put '[JSON] Build)
-packages_id_build_put conn pid auth =
-  do ensureUserAuthorized conn pid (Auth.userID auth)
-     [DB.Only up] :: [DB.Only Bool]
-       <- liftIO $ DB.query
-            conn
-            "SELECT uses_prelude FROM packages WHERE id = ?"
-            (DB.Only pid)
-     fileSrcs :: [DB.Only String]
-       <- liftIO $ DB.query
-            conn
-            "SELECT source_code FROM files WHERE package = ?"
-            (DB.Only pid)
-     preludes :: [DB.Only ByteString]
-       <- if up
-          then
-            liftIO $ DB.query_
-              conn
-              " SELECT build_product    \
-              \ FROM packages           \
-              \ WHERE is_prelude = true \
-              \ AND is_public = true    "
-          else
-            return []
-     let fullSource = unlines [ src | DB.Only src <- fileSrcs ]
-         prelude :: [PackageBuild]
-         prelude = [ B.decode p | DB.Only p <- preludes ]
-     case extract prelude fullSource of
-       Left err ->
-         return Build { errorMessage = Just err }
-       Right ex ->
-         do _ <- liftIO $ DB.execute
-                   conn
-                   " UPDATE packages                            \
-                   \ SET needs_build = false, build_product = ? \
-                   \ WHERE id = ?                               "
-                   (B.encode ex, pid)
-            return Build { errorMessage = Nothing }
 
 
 
@@ -739,11 +659,21 @@ packages_id_files_id_put
                :> Put '[JSON] ())
 packages_id_files_id_put conn pid fid auth update =
   do ensureUserAuthorizedOnFile conn pid fid (Auth.userID auth)
-     liftIO $ DB.withTransaction conn $ do
+     me <- liftIO $ do
+       DB.begin conn
        updateName (fileNameUpdate update)
        updateDescription (fileDescriptionUpdate update)
-       updateSourceCode (fileSourceCodeUpdate update)
-     return ()
+       me <- updateSourceCode (fileSourceCodeUpdate update)
+       case me of
+         Nothing ->
+           do DB.commit conn
+              return me
+         Just _ ->
+           do DB.rollback conn
+              return me
+     case me of
+       Nothing -> return ()
+       Just err -> throwError (err412 { errBody = pack err })
   where
     updateName :: Maybe String -> IO ()
     updateName = mapM_ $ \nme ->
@@ -761,17 +691,63 @@ packages_id_files_id_put conn pid fid auth update =
                 (desc,fid)
          return ()
     
-    updateSourceCode :: Maybe String -> IO ()
-    updateSourceCode = mapM_ $ \src ->
+    updateSourceCode :: Maybe String -> IO (Maybe String)
+    updateSourceCode Nothing =
+      return Nothing
+    updateSourceCode (Just src) =
       do _ <- DB.execute
                 conn
                 "UPDATE files SET source_code = ? WHERE id = ?"
                 (src,fid)
-         _ <- DB.execute
-                conn
-                "UPDATE packages SET needs_build = true WHERE id = ?"
-                (DB.Only pid)
-         return ()
+         buildPackage conn pid
+
+
+
+
+
+-- | We can build a package by collecting up everything necessary and
+-- extracting. If it fails, we return an error string.
+
+buildPackage :: DB.Connection -> PackageID -> IO (Maybe String)
+buildPackage conn pid =
+  do [DB.Only up] :: [DB.Only Bool]
+       <- liftIO $ DB.query
+            conn
+            "SELECT uses_prelude FROM packages WHERE id = ?"
+            (DB.Only pid)
+     fileSrcs :: [DB.Only String]
+       <- liftIO $ DB.query
+            conn
+            "SELECT source_code FROM files WHERE package = ?"
+            (DB.Only pid)
+     preludes :: [DB.Only ByteString]
+       <- if up
+          then
+            liftIO $ DB.query_
+              conn
+              " SELECT build_product    \
+              \ FROM packages           \
+              \ WHERE is_prelude = true \
+              \ AND is_public = true    "
+          else
+            return []
+     let fullSource = unlines [ src | DB.Only src <- fileSrcs ]
+         prelude :: [PackageBuild]
+         prelude = [ B.decode p | DB.Only p <- preludes ]
+     putStrLn $ "Building package with id " ++ (show pid) ++ "."
+     case extract prelude fullSource of
+       Left err ->
+         do putStrLn $ "Build failed: " ++ err
+            return (Just err)
+       Right ex ->
+         do putStrLn "Build succeeded."
+            _ <- liftIO $ DB.execute
+                   conn
+                   " UPDATE packages       \
+                   \ SET build_product = ? \
+                   \ WHERE id = ?          "
+                   (DB.Binary (B.encode ex), pid)
+            return Nothing
 
 
 
@@ -791,8 +767,16 @@ packages_id_files_id_delete conn pid fid auth =
             conn
             "DELETE FROM files WHERE id = ?"
             (DB.Only fid)
-     _ <- liftIO $ DB.execute
-                conn
-                "UPDATE packages SET needs_build = true WHERE id = ?"
-                (DB.Only pid)
-     return ()
+     me <- liftIO $ do
+       DB.begin conn
+       me <- buildPackage conn pid
+       case me of
+         Nothing ->
+           do DB.commit conn
+              return me
+         Just _ ->
+           do DB.rollback conn
+              return me
+     case me of
+       Nothing -> return ()
+       Just err -> throwError (err412 { errBody = pack err })

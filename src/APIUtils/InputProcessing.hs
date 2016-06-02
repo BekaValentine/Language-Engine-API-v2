@@ -21,6 +21,9 @@ import Golem.Core.Term
 import Golem.Utils.ABT
 import Golem.Utils.Env
 import Golem.Utils.Names
+import Golem.Utils.Pretty
+
+import Debug
 
 
 
@@ -48,17 +51,24 @@ data ProcessingInfo
 
 processInput :: ProcessingInfo
              -> String
-             -> Maybe (WorldModel, [EntityDescription])
+             -> Either (Maybe (ParseError String String)) (WorldModel, [Fact])
 processInput pinfo str =
-  case solutions of
-    [sem] -> makeTrue (worldModel pinfo) sem
-    _     -> Nothing
+  case debugSeq "P" $ parse grammr lexr str of
+    Left err -> debugSeq "A" $
+      Left (Just (prettyParseError pretty pretty err))
+    Right parses -> debugSeq "B" $
+      case solutions parses of
+        [sem] ->
+          case makeTrue (worldModel pinfo) sem of
+            Nothing -> Left Nothing
+            Just res -> Right res
+        _     -> Left Nothing
   where
     lexr = convertWordsToLexer (lexicon pinfo)
     grammr = convertRulesToGrammar (grammarRules pinfo)
-    discourseContext = worldModelToTerms (worldModel pinfo)
-    solutions = do
-      (sem,In (Con (Absolute "LE" "EXP") [])) <- parse grammr lexr str
+    discourseContext = worldModelToWitnessedTerms (worldModel pinfo)
+    solutions parses = do
+      (sem,In (Con (Absolute "LE" "EXPR") [])) <- parses
       Just (In (Quote msc)) <- return (evalTerm (environment pinfo) sem)
       let m = instantiate0 msc
           decontm = decontinuize m

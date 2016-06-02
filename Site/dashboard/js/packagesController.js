@@ -21,7 +21,6 @@ angular.module('leApp').
           ownPackages: ownPackages,
           publicPackages: publicPackages
         };
-        console.log(data);
       });
       
       

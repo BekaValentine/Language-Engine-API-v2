@@ -17,10 +17,10 @@ module API.Apps where
 
 import API.APITypes
 import qualified API.Authorization as Auth
-import APIUtils.EntityBuilding
 import APIUtils.GrammarExtraction
-import APIUtils.InputProcessing
-import APIUtils.WorldModel
+import qualified APIUtils.InputProcessing as IP
+import qualified APIUtils.WorldModel as WM
+import qualified Charted.Charted as C
 
 import Control.Monad.Except
 import Control.Monad.IO.Class ()
@@ -49,7 +49,6 @@ data AppSummary
     }
   deriving (Generic)
 
-instance FromJSON AppSummary
 instance ToJSON AppSummary
 
 
@@ -66,10 +65,10 @@ data App
     , appDescription :: String
     , tokens :: [Token]
     , packageSummaries :: [PackageSummary]
+    , parseErrorSummaries :: [ParseErrorSummary]
     }
   deriving (Generic)
 
-instance FromJSON App
 instance ToJSON App
 
 
@@ -85,7 +84,6 @@ data AppConfig
   deriving (Generic)
 
 instance FromJSON AppConfig
-instance ToJSON AppConfig
 
 
 
@@ -103,7 +101,6 @@ data AppUpdate
   deriving (Generic)
 
 instance FromJSON AppUpdate
-instance ToJSON AppUpdate
 
 
 
@@ -121,11 +118,9 @@ data PackageSummary
     , packageUsesPreludeSummary :: Bool
     , packageIsPreludeSummary :: Bool
     , packageIsPublicSummary :: Bool
-    , packageNeedsBuildSummary :: Bool
     }
   deriving (Generic)
 
-instance FromJSON PackageSummary
 instance ToJSON PackageSummary
 
 
@@ -141,7 +136,6 @@ data Token
     }
   deriving (Generic)
 
-instance FromJSON Token
 instance ToJSON Token
 
 
@@ -157,22 +151,51 @@ data Conversation
     }
   deriving (Generic)
 
-instance FromJSON Conversation
 instance ToJSON Conversation
 
 
 
 
 
--- | A 'ConversationUpdate' can be either a world model update, which puts
+-- | A 'ConversationConfig' is just a token that must belong to the app in
+-- order to create a conversation.
+
+data ConversationConfig
+  = ConversationConfig
+    { tokenStringConfig :: String
+    }
+  deriving (Generic)
+
+instance FromJSON ConversationConfig
+
+
+
+
+
+-- | A 'ConversationUpdate' consists of a token together with update info.
+
+data ConversationUpdate
+  = ConversationUpdate
+    { tokenStringUpdate :: String
+    , updateInfo :: ConversationUpdateInfo
+    }
+  deriving (Generic)
+
+instance FromJSON ConversationUpdate
+
+
+
+
+
+-- | A 'ConversationUpdateInfo' can be either a world model update, which puts
 -- new entities and facts into the world mode, a world model reset, which
 -- empties out the world model, and a discourse move, which consists of a
 -- natural language input to process.
 
-data ConversationUpdate
+data ConversationUpdateInfo
   = ConversationUpdateWorldModel
     { newNextEntity :: Int
-    , newFacts :: [EntityDescription]
+    , newFacts :: [WM.Fact]
     }
   | ConversationUpdateResetWorldModel
   | ConversationUpdateDiscourseMove
@@ -180,8 +203,7 @@ data ConversationUpdate
     }
   deriving (Generic)
 
-instance FromJSON ConversationUpdate
-instance ToJSON ConversationUpdate
+instance FromJSON ConversationUpdateInfo
 
 
 
@@ -193,12 +215,96 @@ instance ToJSON ConversationUpdate
 
 data ConversationChange
   = ConversationChange
-    { entityDescriptions :: Maybe [EntityDescription]
+    { change :: Maybe WMFacts
     }
   deriving (Generic)
 
-instance FromJSON ConversationChange
 instance ToJSON ConversationChange
+
+
+
+
+
+-- | A 'REPLConversationError' can be either an 'UnknownWord' error, an
+-- 'IncompleteParse' error, or a 'MiscError'.
+
+data REPLConversationError
+  = UnknownWord
+    { replWord :: String
+    }
+  | IncompleteParse
+    { replChart :: [[C.BracketedSequence String String]]
+    }
+  | MiscError
+  deriving (Generic)
+
+instance ToJSON REPLConversationError
+
+
+
+
+
+-- | A 'REPLConversationChange' is just like a 'ConversationChange' except it
+-- can also provide information in the case of an error.
+
+data REPLConversationChange
+  = REPLConversationChange
+    { replChange :: Maybe WMFacts
+    }
+  | REPLConversationError
+    { replError :: REPLConversationError
+    }
+  deriving (Generic)
+
+instance ToJSON REPLConversationChange
+
+
+
+
+
+-- | A 'WMFacts' is just a wrapper around a pair of of new world model and
+-- some new facts.
+
+data WMFacts
+  = WMFacts
+    { worldModel :: WM.WorldModel
+    , facts :: [WM.Fact]
+    }
+  deriving (Generic)
+
+instance ToJSON WMFacts
+
+
+
+
+
+-- | A 'ParseErrorSummary' is a representation of a parse error that is
+-- more useful for the API.
+
+data ParseErrorSummary
+  = ParseErrorSummary
+    { errorIDSummary :: ErrorID
+    , errorTypeSummary :: String
+    , errorInputSummary :: String
+    , errorWordSummary :: Maybe String
+    }
+  deriving (Generic)
+
+instance ToJSON ParseErrorSummary
+
+
+
+
+-- | A 'ParseErrorChart' provides a representation of the chart for a parse
+-- error.
+
+data ParseErrorChart
+  = ParseErrorChart
+    { chart :: [[C.BracketedSequence String String]]
+    }
+  deriving (Generic)
+
+instance ToJSON ParseErrorChart
 
 
 
@@ -224,28 +330,46 @@ ensureUserAuthorized conn aid uid =
 
 
 
--- | We can ensure that a user is authorized on a conversation by finding the
--- conversation in the DB with the specified ID and application such that the
--- user is the owner of the application and the convo belongs to the app.
+-- | We can ensure that a token is valid for an app by checking the database.
 
-ensureUserAuthorizedOnConversation
+ensureTokenValid :: DB.Connection
+                 -> AppID
+                 -> String
+                 -> ExceptT ServantErr IO ()
+ensureTokenValid conn aid tok =
+  do foundTokens :: [DB.Only TokenID]
+       <- liftIO $ DB.query
+            conn
+            "SELECT id FROM tokens WHERE token = ? AND app = ?"
+            (tok,aid)
+     when (null foundTokens)
+          (throwError err401)
+
+
+
+
+
+-- | We can confirm that a user is authorized on an app by looking in the DB
+-- for an app with the specified ID owned by the specified user.
+
+ensureUserAuthorizedOnREPLConversation
   :: DB.Connection
   -> AppID
   -> ConversationID
   -> UserID
   -> ExceptT ServantErr IO ()
-ensureUserAuthorizedOnConversation conn aid cid uid =
-  do foundConvos :: [DB.Only ConversationID]
+ensureUserAuthorizedOnREPLConversation conn aid cid uid =
+  do foundApps :: [DB.Only AppID]
        <- liftIO $ DB.query
             conn
-            " SELECT conversations.id        \
-            \ FROM conversations, apps       \
-            \ WHERE conversations.id = ?     \
-            \ AND conversations.app = app.id \
-            \ AND app.id = ?                 \
-            \ AND app.owner = ?              "
-            (cid,aid,uid)
-     when (null foundConvos)
+            " SELECT apps.id                       \
+            \ FROM apps, repl_conversations        \
+            \ WHERE apps.id = ?                    \
+            \ AND apps.owner = ?                   \
+            \ AND repl_conversations.id = ?        \
+            \ AND repl_conversations.app = apps.id "
+            (aid,uid,cid)
+     when (null foundApps)
           (throwError err401)
 
 
@@ -295,13 +419,29 @@ type AppsAPI =
          :> Delete '[JSON] ()
   
   :<|> "apps" :> CaptureID :> "conversations"
-         :> BasicAuth "le-realm" Auth.Authorization
+         :> ReqBody '[JSON] ConversationConfig
          :> Post '[JSON] Conversation
   
   :<|> "apps" :> CaptureID :> "conversations" :> CaptureID
-         :> BasicAuth "le-realm" Auth.Authorization
          :> ReqBody '[JSON] ConversationUpdate
          :> Put '[JSON] ConversationChange
+  
+  :<|> "apps" :> CaptureID :> "parse-errors" :> CaptureID
+         :> BasicAuth "le-realm" Auth.Authorization
+         :> Delete '[JSON] ()
+  
+  :<|> "apps" :> CaptureID :> "parse-error-charts" :> CaptureID
+         :> BasicAuth "le-realm" Auth.Authorization
+         :> Get '[JSON] ParseErrorChart
+  
+  :<|> "apps" :> CaptureID :> "repl-conversations"
+         :> BasicAuth "le-realm" Auth.Authorization
+         :> Post '[JSON] Conversation
+  
+  :<|> "apps" :> CaptureID :> "repl-conversations" :> CaptureID
+         :> BasicAuth "le-realm" Auth.Authorization
+         :> ReqBody '[JSON] ConversationUpdateInfo
+         :> Put '[JSON] REPLConversationChange
 
 
 
@@ -318,6 +458,10 @@ appsServer conn =
   :<|> apps_id_tokens_id_delete conn
   :<|> apps_id_conversations_post conn
   :<|> apps_id_conversations_id_put conn
+  :<|> apps_id_parse_errors_id_delete conn
+  :<|> apps_id_parse_error_charts_id_get conn
+  :<|> apps_id_repl_conversations_post conn
+  :<|> apps_id_repl_conversations_id_put conn
 
 
 
@@ -386,12 +530,12 @@ apps_id_get conn aid auth =
             conn
             "SELECT name, description, packages FROM apps WHERE id = ?"
             (DB.Only aid)
-     foundPkgs :: [(PackageID,String,String,Bool,Bool,Bool,Bool)]
+     foundPkgs :: [(PackageID,String,String,Bool,Bool,Bool)]
        <- liftIO $ DB.query
             conn
             " SELECT                                 \
             \   id, name, description, uses_prelude, \
-            \   is_prelude, is_public, needs_build   \
+            \   is_prelude, is_public                \
             \ FROM packages                          \
             \ WHERE id IN ?                          "
             (DB.Only (DB.In (DB.fromPGArray pkgs)))
@@ -399,6 +543,11 @@ apps_id_get conn aid auth =
        <- liftIO $ DB.query
             conn
             "SELECT id, token FROM tokens WHERE app = ?"
+            (DB.Only aid)
+     parseErrors :: [(ErrorID,String,ByteString)]
+       <- liftIO $ DB.query
+            conn
+            "SELECT id,input,error FROM parse_errors WHERE app = ?"
             (DB.Only aid)
      return App
             { appID = aid
@@ -419,9 +568,26 @@ apps_id_get conn aid auth =
                   , packageUsesPreludeSummary = up
                   , packageIsPreludeSummary = isp
                   , packageIsPublicSummary = ispub
-                  , packageNeedsBuildSummary = nb
                   }
-                | (pid,pnme,pdesc,up,isp,ispub,nb) <- foundPkgs
+                | (pid,pnme,pdesc,up,isp,ispub) <- foundPkgs
+                ]
+            , parseErrorSummaries =
+                [ case B.decode err :: C.ParseError String String of
+                    C.UnknownWord w ->
+                      ParseErrorSummary
+                      { errorIDSummary = eid
+                      , errorTypeSummary = "UnknownWord"
+                      , errorInputSummary = input
+                      , errorWordSummary = Just w
+                      }
+                    C.IncompleteParse _ ->
+                      ParseErrorSummary
+                      { errorIDSummary = eid
+                      , errorTypeSummary = "IncompleteParse"
+                      , errorInputSummary = input
+                      , errorWordSummary = Nothing
+                      }
+                | (eid,input,err) <- parseErrors
                 ]
             }
 
@@ -464,7 +630,14 @@ apps_id_put conn aid auth update =
     updatePackages = mapM_ $ \pids ->
       do _ <- DB.execute
                 conn
-                "UPDATE apps SET packages = ? WHERE id = ?"
+                " UPDATE apps                  \
+                \ SET packages = ARRAY (       \
+                \       SELECT id              \
+                \       FROM packages          \
+                \       WHERE id = ANY (?)     \
+                \       AND is_prelude = false \
+                \     )                        \
+                \ WHERE id = ?                 "
                 (DB.PGArray pids, aid)
          return ()
 
@@ -545,17 +718,18 @@ apps_id_tokens_id_delete conn aid tid auth =
 apps_id_conversations_post
   :: DB.Connection
   -> Server ("apps" :> CaptureID :> "conversations"
-              :> BasicAuth "le-realm" Auth.Authorization
+              :> ReqBody '[JSON] ConversationConfig
               :> Post '[JSON] Conversation)
-apps_id_conversations_post conn aid auth =
-  do ensureUserAuthorized conn aid (Auth.userID auth)
+apps_id_conversations_post conn aid (ConversationConfig tok) =
+  do ensureTokenValid conn aid tok
      [DB.Only cid] :: [DB.Only ConversationID]
        <- liftIO $ DB.query
             conn
             " INSERT INTO conversations \
             \   (app, binary_rep)       \
-            \ VALUES (?, ?)             "
-            (aid, B.encode emptyWorldModel)
+            \ VALUES (?, ?)             \
+            \ RETURNING id              "
+            (aid, DB.Binary (B.encode WM.emptyWorldModel))
      return Conversation
             { conversationID = cid
             }
@@ -570,14 +744,13 @@ apps_id_conversations_post conn aid auth =
 apps_id_conversations_id_put
   :: DB.Connection
   -> Server ("apps" :> CaptureID :> "conversations" :> CaptureID
-               :> BasicAuth "le-realm" Auth.Authorization
                :> ReqBody '[JSON] ConversationUpdate
                :> Put '[JSON] ConversationChange)
-apps_id_conversations_id_put conn aid cid auth update =
-  do ensureUserAuthorizedOnConversation conn aid cid (Auth.userID auth)
-     handleConvoUpdate update
+apps_id_conversations_id_put conn aid cid (ConversationUpdate tok info) =
+  do ensureTokenValid conn aid tok
+     handleConvoUpdate info
   where
-    handleConvoUpdate :: ConversationUpdate
+    handleConvoUpdate :: ConversationUpdateInfo
                       -> ExceptT ServantErr IO ConversationChange
     handleConvoUpdate (ConversationUpdateWorldModel newNextEnt newFcts) =
       do [DB.Only wmByteString] :: [DB.Only ByteString]
@@ -585,27 +758,26 @@ apps_id_conversations_id_put conn aid cid auth update =
                 conn
                 "SELECT binary_rep FROM conversations WHERE id = ?"
                 (DB.Only cid)
-         let wm = B.decode wmByteString :: WorldModel
-             newFactTerms = map entityDescriptionToTerm newFcts
+         let wm = B.decode wmByteString :: WM.WorldModel
              newWorldModel =
-               WorldModel
-               { nextEntity = max (nextEntity wm) newNextEnt
-               , facts = newFactTerms ++ facts wm
+               WM.WorldModel
+               { WM.nextEntity = max (WM.nextEntity wm) newNextEnt
+               , WM.facts = newFcts ++ WM.facts wm
                }
          _ <- liftIO $ DB.execute
                 conn
                 "UPDATE conversations SET binary_rep = ? WHERE id = ?"
-                (B.encode newWorldModel, cid)
+                (DB.Binary (B.encode newWorldModel), cid)
          return ConversationChange
-                { entityDescriptions = Nothing
+                { change = Nothing
                 }
     handleConvoUpdate ConversationUpdateResetWorldModel =
       do _ <- liftIO $ DB.execute
                 conn
                 "UPDATE conversations SET binary_rep = ? WHERE id = ?"
-                (B.encode emptyWorldModel, cid)
+                (DB.Binary (B.encode WM.emptyWorldModel), cid)
          return ConversationChange
-                { entityDescriptions = Nothing
+                { change = Nothing
                 }
     handleConvoUpdate (ConversationUpdateDiscourseMove mve) =
       do [DB.Only wmByteString] :: [DB.Only ByteString]
@@ -616,10 +788,13 @@ apps_id_conversations_id_put conn aid cid auth update =
          buildProducts :: [DB.Only ByteString]
            <- liftIO $ DB.query
                 conn
-                " SELECT packages.build_product     \
-                \ FROM packages, app                \
-                \ WHERE packages.id IN app.packages \
-                \ AND app.id = ?                    "
+                " SELECT packages.build_product         \
+                \ FROM packages, apps                   \
+                \ WHERE                                 \
+                \   ( packages.id = ANY (apps.packages) \
+                \     OR packages.is_prelude            \
+                \   )                                   \
+                \ AND apps.id = ?                       "
                 (DB.Only aid)
          let LEExtract
                { extractEnvironment = env
@@ -630,20 +805,213 @@ apps_id_conversations_id_put conn aid cid auth update =
                    [ B.decode exByteString
                    | DB.Only exByteString <- buildProducts
                    ]
-             wm = B.decode wmByteString :: WorldModel
-             pinfo = ProcessingInfo
-                     { lexicon = wds
-                     , grammarRules = rles
-                     , environment = env
-                     , worldModel = wm
+             wm = B.decode wmByteString :: WM.WorldModel
+             pinfo = IP.ProcessingInfo
+                     { IP.lexicon = wds
+                     , IP.grammarRules = rles
+                     , IP.environment = env
+                     , IP.worldModel = wm
                      }
-         case processInput pinfo mve of
-           Nothing -> throwError err412
-           Just (newWm,eds) ->
+         case IP.processInput pinfo mve of
+           Left err -> case err of
+             Nothing -> throwError err412
+             Just parseErr ->
+               do logParseError mve parseErr
+                  throwError err412
+           Right (newWm,fcts) ->
              do _ <- liftIO $ DB.execute
                        conn
                        "UPDATE conversations SET binary_rep = ? WHERE id = ?"
-                       (B.encode newWm, cid)
+                       (DB.Binary (B.encode newWm), cid)
                 return ConversationChange
-                       { entityDescriptions = Just eds
+                       { change = Just (WMFacts newWm fcts)
+                       }
+    
+    logParseError :: String
+                  -> C.ParseError String String
+                  -> ExceptT ServantErr IO ()
+    logParseError input err =
+      do let binerr = B.encode err
+         _ <- liftIO $ DB.execute
+                conn
+                " INSERT INTO parse_errors \
+                \   (app,input,error)      \
+                \ VALUES (?,?,?)           "
+                (aid, input, DB.Binary binerr)
+         return ()
+
+
+
+
+
+apps_id_parse_errors_id_delete
+  :: DB.Connection
+  -> Server ("apps" :> CaptureID :> "parse-errors" :> CaptureID
+               :> BasicAuth "le-realm" Auth.Authorization
+               :> Delete '[JSON] ())
+apps_id_parse_errors_id_delete conn aid eid auth =
+  do ensureUserAuthorized conn aid (Auth.userID auth)
+     _ <- liftIO $ DB.execute
+            conn
+            "DELETE FROM parse_errors WHERE id = ? AND app = ?"
+            (eid, aid)
+     return ()
+
+
+
+
+
+apps_id_parse_error_charts_id_get
+  :: DB.Connection
+  -> Server ("apps" :> CaptureID :> "parse-error-charts" :> CaptureID
+               :> BasicAuth "le-realm" Auth.Authorization
+               :> Get '[JSON] ParseErrorChart)
+apps_id_parse_error_charts_id_get conn aid eid auth =
+  do ensureUserAuthorized conn aid (Auth.userID auth)
+     errs :: [DB.Only ByteString]
+       <- liftIO $ DB.query
+            conn
+            "SELECT error FROM parse_errors WHERE id = ? AND app = ?"
+            (eid, aid)
+     case errs of
+       [] -> throwError err404
+       _:_:_ -> throwError err500
+       [DB.Only errbs] ->
+         case B.decode errbs :: C.ParseError String String of
+           C.UnknownWord _ -> throwError err404
+           C.IncompleteParse c ->
+             return ParseErrorChart
+                    { chart = C.chartToBracketedSequences c
+                    }
+
+
+
+
+
+-- | We can @POST@ to @/apps/:id/repl-conversations@ to create a new REPL
+-- conversation.
+
+apps_id_repl_conversations_post
+  :: DB.Connection
+  -> Server ("apps" :> CaptureID :> "repl-conversations"
+              :> BasicAuth "le-realm" Auth.Authorization
+              :> Post '[JSON] Conversation)
+apps_id_repl_conversations_post conn aid auth =
+  do ensureUserAuthorized conn aid (Auth.userID auth)
+     [DB.Only cid] :: [DB.Only ConversationID]
+       <- liftIO $ DB.query
+            conn
+            " DELETE FROM repl_conversations \
+            \ WHERE app = ? ;                \
+            \ INSERT INTO repl_conversations \
+            \   (app, binary_rep)            \
+            \ VALUES (?, ?)                  \
+            \ RETURNING id                   "
+            (aid, aid, DB.Binary (B.encode WM.emptyWorldModel))
+     return Conversation
+            { conversationID = cid
+            }
+
+
+
+
+
+-- | We can @PUT@ a 'REPLConversationUpdate' to
+-- @/apps/:id/repl-conversations/:id@ to update a REPL conversation. Unlike a
+-- normal conversation, a REPL conversation doesn't throw errors when the
+-- input can't parse or solve. Instead it returns the errors as different
+-- return values. Additionally, it doesn't log the errors. This is because a
+-- REPL conversation is intended for diagnostic/debugging purposes.
+
+apps_id_repl_conversations_id_put
+  :: DB.Connection
+  -> Server ("apps" :> CaptureID :> "repl-conversations" :> CaptureID
+               :> BasicAuth "le-realm" Auth.Authorization
+               :> ReqBody '[JSON] ConversationUpdateInfo
+               :> Put '[JSON] REPLConversationChange)
+apps_id_repl_conversations_id_put conn aid cid auth info =
+  do ensureUserAuthorizedOnREPLConversation conn aid cid (Auth.userID auth)
+     handleConvoUpdate info
+  where
+    handleConvoUpdate :: ConversationUpdateInfo
+                      -> ExceptT ServantErr IO REPLConversationChange
+    handleConvoUpdate (ConversationUpdateWorldModel newNextEnt newFcts) =
+      do [DB.Only wmByteString] :: [DB.Only ByteString]
+           <- liftIO $ DB.query
+                conn
+                "SELECT binary_rep FROM repl_conversations WHERE id = ?"
+                (DB.Only cid)
+         let wm = B.decode wmByteString :: WM.WorldModel
+             newWorldModel =
+               WM.WorldModel
+               { WM.nextEntity = max (WM.nextEntity wm) newNextEnt
+               , WM.facts = newFcts ++ WM.facts wm
+               }
+         _ <- liftIO $ DB.execute
+                conn
+                "UPDATE repl_conversations SET binary_rep = ? WHERE id = ?"
+                (DB.Binary (B.encode newWorldModel), cid)
+         return REPLConversationChange
+                { replChange = Nothing
+                }
+    handleConvoUpdate ConversationUpdateResetWorldModel =
+      do _ <- liftIO $ DB.execute
+                conn
+                "UPDATE repl_conversations SET binary_rep = ? WHERE id = ?"
+                (DB.Binary (B.encode WM.emptyWorldModel), cid)
+         return REPLConversationChange
+                { replChange = Nothing
+                }
+    handleConvoUpdate (ConversationUpdateDiscourseMove mve) =
+      do [DB.Only wmByteString] :: [DB.Only ByteString]
+           <- liftIO $ DB.query
+                conn
+                "SELECT binary_rep FROM repl_conversations WHERE id = ?"
+                (DB.Only cid)
+         buildProducts :: [DB.Only ByteString]
+           <- liftIO $ DB.query
+                conn
+                " SELECT packages.build_product         \
+                \ FROM packages, apps                   \
+                \ WHERE                                 \
+                \   ( packages.id = ANY (apps.packages) \
+                \     OR packages.is_prelude            \
+                \   )                                   \
+                \ AND apps.id = ?                       "
+                (DB.Only aid)
+         let LEExtract
+               { extractEnvironment = env
+               , extractWords = wds
+               , extractRules = rles
+               }
+               = combineExtracts
+                   [ B.decode exByteString
+                   | DB.Only exByteString <- buildProducts
+                   ]
+             wm = B.decode wmByteString :: WM.WorldModel
+             pinfo = IP.ProcessingInfo
+                     { IP.lexicon = wds
+                     , IP.grammarRules = rles
+                     , IP.environment = env
+                     , IP.worldModel = wm
+                     }
+         case IP.processInput pinfo mve of
+           Left err -> case err of
+             Nothing ->
+               return $ REPLConversationError MiscError
+             Just (C.UnknownWord w) ->
+               return $ REPLConversationError (UnknownWord w)
+             Just (C.IncompleteParse c) ->
+               return $
+                 REPLConversationError
+                   (IncompleteParse (C.chartToBracketedSequences c))
+           Right (newWm,fcts) ->
+             do _ <- liftIO $ DB.execute
+                       conn
+                       " UPDATE repl_conversations \
+                       \ SET binary_rep = ?        \
+                       \ WHERE id = ?              "
+                       (DB.Binary (B.encode newWm), cid)
+                return REPLConversationChange
+                       { replChange = Just (WMFacts newWm fcts)
                        }

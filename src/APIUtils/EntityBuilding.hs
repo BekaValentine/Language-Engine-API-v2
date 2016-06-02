@@ -13,66 +13,17 @@
 
 module APIUtils.EntityBuilding where
 
-import APIUtils.WorldModel
+import qualified APIUtils.WorldModel as WM
 import Golem.Core.RequireSolving (compose)
 import Golem.Core.Term
 import Golem.Utils.ABT
 import Golem.Utils.Names
-import Golem.Utils.Plicity
 import Golem.Utils.Telescope
 
 import Control.Applicative
 import Control.Monad.State
-import Data.Aeson
-import GHC.Generics
 
 
-
-
-
-
-
--- | An entity description is a piece of information about an entity. These
--- are essentially just atomic predicates of the relevant sort.
-
-data EntityDescription
-  = PredDesc String Entity
-  | RelDesc String Entity Entity
-  | UnaryDesc String Entity
-  | BinaryStringDesc String Entity String
-  deriving (Show,Generic)
-
-instance FromJSON EntityDescription
-instance ToJSON EntityDescription
-
-
-
-
-
--- | We can turn an 'EntityDescription' into a term by convertting to the
--- appropriate con data and externals.
-
-entityDescriptionToTerm :: EntityDescription -> Term
-entityDescriptionToTerm (PredDesc p e) =
-  conH (Absolute "LE" "Pred")
-       [ (Expl,conH (Absolute "LE" p) [])
-       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
-       ]
-entityDescriptionToTerm (RelDesc r e y) =
-  conH (Absolute "LE" "Rel")
-       [ (Expl,conH (Absolute "LE" r) [])
-       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
-       , (Expl,externalH y (conH (Absolute "LE" "Entity") []))
-       ]
-entityDescriptionToTerm (UnaryDesc c e) =
-  conH (Absolute "LE" c)
-       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
-       ]
-entityDescriptionToTerm (BinaryStringDesc c e s) =
-  conH (Absolute "LE" c)
-       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
-       , (Expl,In (MkStr s))
-       ]
 
 
 
@@ -81,18 +32,7 @@ entityDescriptionToTerm (BinaryStringDesc c e s) =
 -- | A 'Construction' is just a stateful process with a 'WorldModel' and a
 -- list of 'EntityDescription's as state..
 
-type Construction = StateT (WorldModel,[EntityDescription]) Maybe
-
-
-
-
-
--- | We can assert an entity description by adding it to the state.
-
-assertDescription :: EntityDescription -> Construction ()
-assertDescription desc =
-  do (wm,descs) <- get
-     put (wm,desc:descs)
+type Construction = StateT (WM.WorldModel,[WM.Fact]) Maybe
 
 
 
@@ -101,7 +41,7 @@ assertDescription desc =
 -- | We can lift a 'WorldUpdate' to a 'Construction' by running the update on
 -- the world model.
 
-liftWorldUpdate :: WorldUpdate a -> Construction a
+liftWorldUpdate :: WM.WorldUpdate a -> Construction a
 liftWorldUpdate wu =
   do (wm,eds) <- get
      case runStateT wu wm of
@@ -114,15 +54,36 @@ liftWorldUpdate wu =
 
 
 
+-- | We can make an entity by lifting the world model update.
+
+newEntity :: Construction WM.Entity
+newEntity = liftWorldUpdate WM.newEntity
+
+
+
+
+
+-- | We can assert an entity description by adding it to the state.
+
+assertFact :: WM.Fact -> Construction ()
+assertFact f =
+  do liftWorldUpdate (WM.assertFact f)
+     (wm,fs) <- get
+     put (wm,f:fs)
+
+
+
+
+
 -- | We can construct a proof of a type, modifying a world state, provided
 -- that the type is a function type, a record type, or a 'Pred' or 'Rel' type
 -- condata type. Doing so will yield some 'EntityDescription's.
 
-makeTrue :: WorldModel -> Term -> Maybe (WorldModel,[EntityDescription])
+makeTrue :: WM.WorldModel -> Term -> Maybe (WM.WorldModel,[WM.Fact])
 makeTrue wm fact0 =
   do (_,p) <-
        runStateT
-         (go (worldModelToTerms wm) fact0)
+         (go (WM.worldModelToWitnessedTerms wm) fact0)
          (wm,[])
      return p
   where
@@ -132,36 +93,31 @@ makeTrue wm fact0 =
            go fcts (instantiate sc [m])
          return (postulateH fact)
     go _ (In (Con (Absolute "LE" "Entity") [])) =
-      do ent <- liftWorldUpdate newEntity
+      do ent <- newEntity
          return (externalH ent (conH (Absolute "LE" "Entity") []))
     go _ fact@(In (Con (Absolute "LE" "Pred") [(_,psc),(_,esc)])) =
       do In (Con (Absolute "LE" p) []) <- return (instantiate0 psc)
          In (External e _) <- return (instantiate0 esc)
-         liftWorldUpdate (assertFact fact)
-         assertDescription (PredDesc p e)
+         assertFact (WM.PredDesc p e)
          return (postulateH fact)
     go _ fact@(In (Con (Absolute "LE" "Rel") [(_,rsc),(_,esc),(_,xsc)])) =
       do In (Con (Absolute "LE" r) []) <- return (instantiate0 rsc)
          In (External e _) <- return (instantiate0 esc)
          In (External x _) <- return (instantiate0 xsc)
-         liftWorldUpdate (assertFact fact)
-         assertDescription (RelDesc r e x)
+         assertFact (WM.RelDesc r e x)
          return (postulateH fact)
     go _ fact@(In (Con (Absolute "LE" "Background") [(_,esc)])) =
       do In (External e _) <- return (instantiate0 esc)
-         liftWorldUpdate (assertFact fact)
-         assertDescription (UnaryDesc "Background" e)
+         assertFact (WM.UnaryDesc "Background" e)
          return (postulateH fact)
     go _ fact@(In (Con (Absolute "LE" "Nonexistant") [(_,esc)])) =
       do In (External e _) <- return (instantiate0 esc)
-         liftWorldUpdate (assertFact fact)
-         assertDescription (UnaryDesc "Nonexistant" e)
+         assertFact (WM.UnaryDesc "Nonexistant" e)
          return (postulateH fact)
     go _ fact@(In (Con (Absolute "LE" "StringVal") [(_,esc),(_,strsc)])) =
       do In (External e _) <- return (instantiate0 esc)
          In (MkStr s) <- return (instantiate0 strsc)
-         liftWorldUpdate (assertFact fact)
-         assertDescription (BinaryStringDesc "StringVal" e s)
+         assertFact (WM.BinaryStringDesc "StringVal" e s)
          return (postulateH fact)
     go fcts (In (RecordType fs (Telescope ascs0))) =
       do xs <- goTele fcts [] ascs0

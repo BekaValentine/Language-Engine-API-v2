@@ -13,9 +13,12 @@
 module APIUtils.WorldModel where
 
 import Golem.Core.Term
+import Golem.Utils.ABT
 import Golem.Utils.Names
+import Golem.Utils.Plicity
 
 import Control.Monad.State
+import Data.Aeson (FromJSON,ToJSON)
 import qualified Data.Binary as B
 import GHC.Generics
 
@@ -33,10 +36,11 @@ type Entity = Int
 
 
 
--- | We can convert an entity into a term by turning it into an @External@.
+-- | We can convert an entity into a witnessed term for a discourse context by
+-- turning it into an @External@.
 
-entityToTerm :: Entity -> (Term,Term)
-entityToTerm i =
+entityToWitnessedTerm :: Entity -> (Term,Term)
+entityToWitnessedTerm i =
   let a = conH (Absolute "LE" "Entity") []
   in (externalH i a, a)
 
@@ -44,34 +48,77 @@ entityToTerm i =
 
 
 
--- | A fact is just a proposition that we'll be postulating.
+-- | A 'Fact' is a piece of information about an entity. These are essentially
+-- just atomic predicates of the relevant sort.
 
-type Fact = Term
+data Fact
+  = PredDesc String Entity
+  | RelDesc String Entity Entity
+  | UnaryDesc String Entity
+  | BinaryStringDesc String Entity String
+  deriving (Show,Generic)
+
+instance B.Binary Fact
+instance FromJSON Fact
+instance ToJSON Fact
 
 
 
 
 
--- | We can turn a fact into a proof constructing it's postulate.
+-- | We can turn a 'Fact' into a term by convertting to the appropriate con
+-- data and externals.
 
-factToTerm :: Fact -> (Term,Term)
-factToTerm a = (postulateH a, a)
+factToTerm :: Fact -> Term
+factToTerm (PredDesc p e) =
+  conH (Absolute "LE" "Pred")
+       [ (Expl,conH (Absolute "LE" p) [])
+       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       ]
+factToTerm (RelDesc r e y) =
+  conH (Absolute "LE" "Rel")
+       [ (Expl,conH (Absolute "LE" r) [])
+       , (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       , (Expl,externalH y (conH (Absolute "LE" "Entity") []))
+       ]
+factToTerm (UnaryDesc c e) =
+  conH (Absolute "LE" c)
+       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       ]
+factToTerm (BinaryStringDesc c e s) =
+  conH (Absolute "LE" c)
+       [ (Expl,externalH e (conH (Absolute "LE" "Entity") []))
+       , (Expl,In (MkStr s))
+       ]
+
+
+
+
+
+-- | We can turn a 'Fact' into a witnessed term for a discourse context by
+-- postulating it.
+
+factToWitnessedTerm :: Fact -> (Term,Term)
+factToWitnessedTerm a =
+  let a' = factToTerm a
+  in (postulateH a', a')
 
 
 
 
 
 -- | A world model consists of a collection of entities, together with some
--- facts about them.
+-- entity descriptions about them.
 
 data WorldModel
   = WorldModel
     { nextEntity :: Entity
     , facts :: [Fact]
     }
-  deriving (Generic)
+  deriving (Show,Generic)
 
 instance B.Binary WorldModel
+instance ToJSON WorldModel
 
 
 
@@ -91,12 +138,13 @@ emptyWorldModel =
 
 
 
--- | We can convert a world model into a set of typed terms by turning the
--- entities into external elements and facts into postulates.
+-- | We can convert a world model into a set of witnessed terms for a
+-- discourse context by turning the entities into external elements and facts
+-- into postulates.
 
-worldModelToTerms :: WorldModel -> [(Term,Term)]
-worldModelToTerms (WorldModel nextEnt fcts) =
-  map entityToTerm [0..nextEnt-1] ++ map factToTerm fcts
+worldModelToWitnessedTerms :: WorldModel -> [(Term,Term)]
+worldModelToWitnessedTerms (WorldModel nextEnt fcts) =
+  map entityToWitnessedTerm [0..nextEnt-1] ++ map factToWitnessedTerm fcts
 
 
 

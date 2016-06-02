@@ -1,6 +1,6 @@
 'use strict';
 
-angular.module('leApp', ['ngRoute','ngResource','ngCookies','ui.codemirror']).
+angular.module('leApp', ['ngRoute','ngResource','ngCookies','ngSanitize','ui.codemirror']).
   
   config(['$routeProvider', function ($routeProvider) {
     

@@ -114,17 +114,18 @@ angular.module('leApp').
             $scope.buildInfo.hasError = true;
             $scope.buildInfo.error = data.errorMessage;
           } else {
-            $scope.packageInfo.packageNeedsBuild = false;
             $scope.buildInfo.hasError = false;
           }
         });
     };
     
     $scope.deletePackage = function () {
-      apiService.packages.id.destroy($scope.packageInfo.packageID).
-        success(function () {
-          $location.path('/packages');
-        });
+      if (confirm("Delete this packge?")) {
+        apiService.packages.id.destroy($scope.packageInfo.packageID).
+          success(function () {
+            $location.path('/packages');
+          });
+      }
     };
     
     $scope.newFileInfo = {
@@ -165,7 +166,8 @@ angular.module('leApp').
       description: "",
       sourceCode: "",
       hasError: false,
-      error: ""
+      error: "",
+      waiting: false
     };
     
     $scope.$on('$routeChangeStart', function (ev) {
@@ -220,30 +222,39 @@ angular.module('leApp').
     };
     
     $scope.saveFileChanges = function () {
+      $scope.fileEditing.hasError = false;
+      $scope.fileEditing.waiting = true;
+      
       var updateInfo = {
         name: $scope.fileEditing.name,
         description: $scope.fileEditing.description,
         sourceCode: $scope.fileEditing.sourceCode
       };
       
-      apiService.packages.id.files.id.update($scope.packageInfo.packageID, $scope.fileInfo.id, updateInfo).
-        success(function () {
-          $scope.packageInfo.packageNeedsBuild = true;
-          $scope.fileInfo.name = $scope.fileEditing.name;
-          $scope.fileInfo.description = $scope.fileEditing.description;
-          $scope.fileInfo.sourceCode = $scope.fileEditing.sourceCode;
-          
-          $scope.packageInfo.fileSummaries.forEach(function (summary) {
-            if (summary.fileIDSummary === $scope.fileInfo.id) {
-              summary.fileNameSummary = $scope.fileEditing.name;
-              summary.fileDescriptionSummary = $scope.fileEditing.description;
-            }
-          });
-        }).
-        error(function (response) {
-          $scope.fileEditing.hasError = true;
-          $scope.fileEditing.error = response.statusText;
+      let successCallback = function () {
+        $scope.fileEditing.waiting = false;
+        
+        $scope.fileInfo.name = $scope.fileEditing.name;
+        $scope.fileInfo.description = $scope.fileEditing.description;
+        $scope.fileInfo.sourceCode = $scope.fileEditing.sourceCode;
+        
+        $scope.packageInfo.fileSummaries.forEach(function (summary) {
+          if (summary.fileIDSummary === $scope.fileInfo.id) {
+            summary.fileNameSummary = $scope.fileEditing.name;
+            summary.fileDescriptionSummary = $scope.fileEditing.description;
+          }
         });
+      };
+      
+      let errorCallback = function (response) {
+        $scope.fileEditing.hasError = true;
+        $scope.fileEditing.waiting = false;
+        
+        $scope.fileEditing.error = response.data.replace(/\n/g,"<br/>");
+      };
+      
+      apiService.packages.id.files.id.update($scope.packageInfo.packageID, $scope.fileInfo.id, updateInfo).
+        then(successCallback, errorCallback);
     };
     
     $scope.deleteFile = function () {
@@ -256,7 +267,6 @@ angular.module('leApp').
             $scope.packageInfo.fileSummaries = $scope.packageInfo.fileSummaries.filter(function (summary) {
               return summary.fileIDSummary !== $scope.fileInfo.id
             });
-            $scope.packageInfo.packageNeedsBuild = true;
           }).
           error(function (response) {
             $scope.fileEditing.hasError = true;

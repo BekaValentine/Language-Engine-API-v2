@@ -4,6 +4,8 @@ angular.module('leApp').
   controller('SettingsController', ['$scope', 'apiService',
     function ($scope, apiService) {
       
+      $scope.userIsAdmin = apiService.login.isAdmin();
+      
       $scope.emailInfo = {
         email: ""
       };

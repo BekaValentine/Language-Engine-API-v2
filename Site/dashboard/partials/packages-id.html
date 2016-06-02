@@ -50,15 +50,6 @@
     </p>
     
     <div>
-        <p>
-            <em>Needs Build</em>
-            {{packageInfo.packageNeedsBuild}}
-            <input type="button"
-                   value="Build"
-                   ng-click="buildPackage()"
-                   ng-show="packageInfo.packageIsOwn">
-            <p ng-show="buildInfo.hasError">Error: {{buildInfo.error}}</p>
-        </p>
         <p><em>Your package</em> {{packageInfo.packageIsOwn}}</p>
         <p><em>Package ID</em> {{packageInfo.packageID}}</p>    
     </div>        
@@ -106,19 +97,26 @@
         <p>Name: {{fileInfo.name}}</p>
         <p>Description: {{fileInfo.description}}</p>
         <p>Source Code:</p>
-        <div>{{fileInfo.sourceCode}}</div>
+        <div style="border: 1px solid grey;">
+          <textarea
+             ui-codemirror="cmOption"
+             ui-codemirror-opts="{ readOnly: 'nocursor' }"
+             ui-refresh='sourceCodeIsSomething'
+             ng-model="fileInfo.sourceCode"></textarea>
+        </div>
     </div>
     <div ng-show="packageInfo.packageIsOwn && fileInfo.fileSelected">
         <p>
             <input type="button"
                    value="Save"
                    ng-click="saveFileChanges()"
-                   ng-disabled="!fileChanged()">
+                   ng-disabled="!fileChanged() || fileEditing.waiting">
             <input type="button"
                    value="Delete"
                    ng-click="deleteFile()">
         </p>
-        <p ng-show="fileEditing.hasError">{{fileEditing.error}}</p>
+        <p ng-show="fileEditing.waiting">Compiling... Please wait...</p>
+        <p ng-show="fileEditing.hasError" ng-bind-html="fileEditing.error"></p>
         <p>Name: <input type="text" ng-trim="false" ng-model="fileEditing.name"></p>
         <p>Description:</p>
         <textarea rows="5" cols="50" ng-trim="false" ng-model="fileEditing.description"></textarea>
@@ -126,7 +124,7 @@
         <div style="border: 1px solid grey;">
           <textarea
              ui-codemirror="cmOption"
-             ui-refresh='sourceCodeIsSomething'
+             ui-refresh="sourceCodeIsSomething"
              ng-model="fileEditing.sourceCode"></textarea>
         </div>
     </div>

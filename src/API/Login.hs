@@ -47,7 +47,6 @@ data LoginInformation
   deriving (Generic)
 
 instance FromJSON LoginInformation
-instance ToJSON LoginInformation
 
 
 
@@ -62,7 +61,6 @@ data UsernameRecovery
   deriving (Generic)
 
 instance FromJSON UsernameRecovery
-instance ToJSON UsernameRecovery
 
 
 
@@ -77,7 +75,6 @@ data PasswordResetRequest
   deriving (Generic)
 
 instance FromJSON PasswordResetRequest
-instance ToJSON PasswordResetRequest
 
 
 
@@ -95,7 +92,6 @@ data PasswordResetConfirmation
   deriving (Generic)
 
 instance FromJSON PasswordResetConfirmation
-instance ToJSON PasswordResetConfirmation
 
 
 

@@ -44,7 +44,6 @@ data User
     }
   deriving (Generic,Show)
 
-instance FromJSON User
 instance ToJSON User
 
 
@@ -62,7 +61,6 @@ data UserConfig
   deriving (Generic,Show)
 
 instance FromJSON UserConfig
-instance ToJSON UserConfig
 
 
 
@@ -79,7 +77,6 @@ data UserUpdate
   deriving (Generic,Show)
 
 instance FromJSON UserUpdate
-instance ToJSON UserUpdate
 
 
 

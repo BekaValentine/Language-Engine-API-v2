@@ -182,6 +182,43 @@ angular.module('leApp').
               });
             }
           }
+        },
+        replConversations: {
+          create: function (aid) {
+            return $http.post(apiInfo.url + '/apps/' + aid.toString() + "/repl-conversations", [], {
+              headers: { 'Authorization': auth() }
+            });
+          },
+          id: {
+            updateDiscourseMove: function (aid,cid,move) {
+              let convoMoveUpdate = {
+                "tag": "ConversationUpdateDiscourseMove",
+                "move": move
+              };
+              
+              return $http.put(apiInfo.url + '/apps/' + aid.toString() + "/repl-conversations/" + cid.toString(), convoMoveUpdate, {
+              headers: { 'Authorization': auth() }
+            });
+            }
+          }
+        },
+        parseErrors: {
+          id: {
+            destroy: function (aid,eid) {
+              return $http.delete(apiInfo.url + '/apps/' + aid.toString() + '/parse-errors/' + eid.toString(), {
+                headers: { 'Authorization': auth() }
+              });
+            }
+          }
+        },
+        parseErrorCharts: {
+          id: {
+            read: function (aid,eid) {
+              return $http.get(apiInfo.url + '/apps/' + aid.toString() + '/parse-error-charts/' + eid.toString(), {
+                headers: { 'Authorization': auth() }
+              });
+            }
+          }
         }
       }
     };
@@ -278,7 +315,7 @@ angular.module('leApp').
             var fileConfig = {
               fileNameConfig: name
             };
-            console.log(fileConfig);
+            
             return $http.post(apiInfo.url + '/packages/' + id.toString() + '/files', fileConfig, {
               headers: { 'Authorization': auth() }
             });

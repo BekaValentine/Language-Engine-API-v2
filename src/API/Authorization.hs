@@ -33,7 +33,6 @@ data Authorization =
   Authorization { userID :: UserID, isAdmin :: Bool }
   deriving (Generic,Show)
 
-instance FromJSON Authorization
 instance ToJSON Authorization
 
 

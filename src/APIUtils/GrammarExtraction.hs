@@ -19,6 +19,7 @@ import Golem.Utils.Elaborator
 import Golem.Utils.Env
 import Golem.Utils.Names
 import Golem.Utils.Plicity
+import Golem.Utils.Pretty
 import Golem.Utils.Unifier
 import Golem.Utils.Vars
 import Golem.Core.Parser
@@ -66,16 +67,17 @@ convertWord (In (Con (Absolute "LE" "MkWord") [(_,sc)])) =
           case instantiate0 formsc of
             In (MkStr fm) ->
               LEWord fm (instantiate0 catsc) (instantiate0 semsc)
-            _ -> convertWordError
-        _ -> convertWordError
-    _ -> convertWordError
+            _ -> convertWordError "A"
+        _ -> convertWordError "B"
+    _ -> convertWordError "C"
 convertWord _ =
-  convertWordError
+  convertWordError "D"
 
 
-convertWordError :: a
-convertWordError =
-  error "The 'convertWord' function has been given a non-word value."
+convertWordError :: String -> a
+convertWordError loc =
+  error $ "The 'convertWord' function has been given a non-word value at "
+            ++ loc
 
 
 
@@ -100,21 +102,22 @@ instance Binary LERule
 -- term isn't a rule b/c we should have filtered to use only actual rules.
 
 convertRule :: Term -> LERule
-convertRule (In (Con (Absolute "LE" "MkRule") [(_,sc)])) =
+convertRule tm@(In (Con (Absolute "LE" "MkRule") [(_,sc)])) =
   case instantiate0 sc of
     In (RecordCon fields) ->
       case sortBy (\(x,_) (y,_) -> compare x y) fields of
         [("ruleMeaning",semsc),("ruleType",tysc)] ->
           LERule (instantiate0 tysc) (instantiate0 semsc)
-        _ -> convertWordError
-    _ -> convertWordError
-convertRule _ =
-  convertRuleError
+        _ -> convertRuleError ("A: " ++ pretty tm)
+    _ -> convertRuleError ("B: " ++ pretty tm)
+convertRule tm =
+  convertRuleError ("C: " ++ pretty tm)
 
 
-convertRuleError :: a
-convertRuleError =
-  error "The 'convertRule' function has been given a non-rule value."
+convertRuleError :: String -> a
+convertRuleError loc =
+  error $ "The 'convertRule' function has been given a non-rule value at "
+            ++ loc
 
 
 
@@ -155,13 +158,21 @@ filterWordsAndRules = foldl f ([],[])
 
 
 
--- | We can convert some words into a lexer.
+-- | We can convert some words into a lexer. This lexer will turn string
+-- literals of the form "foo" and 'foo' into words of category STRING
 
 convertWordsToLexer :: [LEWord] -> Lexer Term Term
-convertWordsToLexer wds fm0 =
-  do LEWord fm cat sem <- wds
-     guard (fm == fm0)
-     return (sem,cat)
+convertWordsToLexer wds fm0
+  | isString fm0 =
+    -- if fm0 is "foo" then it means `"foo" and has cat LE.STRING
+    [(quoteH (mkStrH fm0), In (Con (Absolute "LE" "STRING") []))]
+  | otherwise =
+    do LEWord fm cat sem <- wds
+       guard (fm == fm0)
+       return (sem,cat)
+  where
+    isString ('\"':_) = True
+    isString _        = False
 
 
 
@@ -244,6 +255,18 @@ data LEExtract
   deriving (Generic)
 
 instance Binary LEExtract
+
+instance Show LEExtract where
+  show (LEExtract env wds rles) = show (length env) ++ "," ++ show (length wds) ++ "," ++ show (length rles)
+
+
+
+
+
+-- | An empty extract is just an extract with no data in the lists.
+
+emptyExtract :: LEExtract
+emptyExtract = LEExtract [] [] []
 
 
 

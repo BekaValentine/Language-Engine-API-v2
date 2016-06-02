@@ -65,10 +65,8 @@
             <li ng-repeat="summary in appInfo.packageSummaries">
                 <p>{{summary.packageNameSummary}}</p>
                 <p>{{summary.packageDescriptionSummary}}</p>
-                <p><em>Is Prelude</em> {{summary.packageIsPreludeSummary}}</p>
                 <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
                 <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
-                <p><em>Needs Build</em> {{summary.packageNeedsBuildSummary}}</p>
             </li>
         </ul>
     </div>
@@ -79,15 +77,75 @@
             </li>
             <li ng-repeat="summary in appPackagesEditing.candidatePackages">
                 <p>
-                    <input type="checkbox" ng-model="summary.isUsed">
+                    <input type="checkbox"
+                           ng-model="summary.isUsed"
+                           ng-disabled="summary.packageIsPreludeSummary">
                     {{summary.packageNameSummary}}
                 </p>
                 <p>{{summary.packageDescriptionSummary}}</p>
-                <p><em>Is Prelude</em> {{summary.packageIsPreludeSummary}}</p>
                 <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
                 <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
-                <p><em>Needs Build</em> {{summary.packageNeedsBuildSummary}}</p>
             </li>
         </ul>
     </div>
+</div>
+
+<div>
+    <h2>Interactive REPL</h2>
+    <div style="border: 1px solid grey;">
+      <textarea
+         ui-codemirror="cmOption"
+         ui-refresh="replNeedsUpdate"
+         ng-model="replInfo.output"></textarea>
+    </div>
+    <form ng-submit="sendREPL()">
+        <input type="text"
+               size="80"
+               ng-model="replInfo.input" />
+        <input type="button"
+               value="Send"
+               ng-click="sendREPL()" />
+        <input type="button"
+               value="Clear"
+               ng-click="resetREPL()" />
+    </form>
+</div>
+
+<div>
+    <h2>Parse Errors</h2>
+    <ul>
+        <li ng-show="0 === appInfo.parseErrorSummaries.length">
+            No parse errors.
+        </li>
+        <li ng-repeat="err in appInfo.parseErrorSummaries">
+            <p><em>Type</em> {{err.errorTypeSummary}}</p>
+            <p><em>Input</em> {{err.errorInputSummary}}</p>
+            <p ng-show="'UnknownWord' === err.errorTypeSummary">
+                <em>Word</em> {{err.errorWordSummary}}
+            </p>
+            <p ng-show="'IncompleteParse' === err.errorTypeSummary">
+                <em>Chart</em>
+                <input type="button"
+                       ng-show="true !== err.hasChartInfo"
+                       value="Load"
+                       ng-click="loadChart(err.errorIDSummary)"
+                       />
+            </p>
+            <div ng-show="true === err.hasChartInfo">
+                <ul>
+                    <li ng-repeat="bracketting in err.chartInfo">
+                        <span ng-repeat="bracket in bracketting">
+                            [<sub>{{bracket.sequenceLabel}}</sub> {{bracket.sequenceWords}}]
+                        </span>
+                    </li>
+                </ul>
+            </div>
+            <p>
+                <input type="button"
+                       value="Delete"
+                       ng-click="deleteParseError(err.errorIDSummary)"
+                       />
+            </p>
+        </li>
+    </ul>
 </div>

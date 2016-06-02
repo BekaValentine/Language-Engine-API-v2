@@ -17,6 +17,7 @@ CodeMirror.defineMode("golem", function(_config, modeConfig) {
                   "where","let","module","open",
                   "opening","as","using","hiding",
                   "renaming","to",
+                  "family","instance",
                   "continue","shift","reset","from","in",
                   "require"
                   ];

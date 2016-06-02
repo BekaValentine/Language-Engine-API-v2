@@ -35,3 +35,5 @@ type FileID = Int32
 type PackageID = Int32
 
 type UserID = Int32
+
+type ErrorID = Int32
