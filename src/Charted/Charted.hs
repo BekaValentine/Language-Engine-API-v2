@@ -1,20 +1,18 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE BangPatterns #-}
 
 
 -- | This module defines the Charted chart parser.
 
-module Charted.Charted
-       ( Rule
-       , Grammar
-       , Lexer
-       , nextLabel
-       , nextData
-       , parse
-       ) where
+module Charted.Charted where
 
 import Control.Monad
 import Control.Monad.State
+import Data.Aeson
+import qualified Data.Binary as B
 import qualified Data.Map as M
+import GHC.Generics
 
 
 
@@ -35,7 +33,19 @@ import qualified Data.Map as M
 -- with many redundancies. The map lets us factor out the common label.
 
 newtype Chart d l = Chart { edges :: M.Map l [Edge d l] }
-  deriving (Show,Eq)
+  deriving (Show,Eq,Generic)
+
+instance (B.Binary d, B.Binary l) => B.Binary (Chart d l)
+
+instance (ToJSON d, ToJSON l) => ToJSON (Chart d l) where
+  toJSON (Chart e) = toJSON (M.toList e)
+
+prettyChartDataAndLabels
+  :: (d -> String)
+  -> (l -> String)
+  -> Chart d l -> Chart String String
+prettyChartDataAndLabels pd pl (Chart es) =
+  Chart (M.mapKeysWith (++) pl (M.map (map (prettyEdgeDataAndLabels pd pl)) es))
 
 
 emptyChart :: Chart d l
@@ -48,8 +58,18 @@ emptyChart = Chart M.empty
 -- | An @Edge d l@ is just some data @d@ together with a @Chart d l@ that
 -- corresponds to the rest of the chart after that edge.
 
-data Edge d l = Edge d (Chart d l)
-  deriving (Show,Eq)
+data Edge d l = Edge [String] d (Chart d l)
+  deriving (Show,Eq,Generic)
+
+instance (B.Binary d, B.Binary l) => B.Binary (Edge d l)
+instance (ToJSON d, ToJSON l) => ToJSON (Edge d l)
+
+prettyEdgeDataAndLabels
+  :: (d -> String)
+  -> (l -> String)
+  -> Edge d l -> Edge String String
+prettyEdgeDataAndLabels pd pl (Edge ws d c) =
+  Edge ws (pd d) (prettyChartDataAndLabels pd pl c)
 
 
 
@@ -58,9 +78,9 @@ data Edge d l = Edge d (Chart d l)
 -- | We can "cons" some data onto a chart with a label by making a new chart
 -- with a single appropriate edge.
 
-consChart :: Ord l => [(d,l)] -> Chart d l -> Chart d l
+consChart :: Ord l => [([String],d,l)] -> Chart d l -> Chart d l
 consChart dls c =
-  Chart $ M.fromListWith (++) [ (l, [Edge d c]) | (d,l) <- dls ]
+  Chart $ M.fromListWith (++) [ (l, [Edge ws d c]) | (ws,d,l) <- dls ]
 
 
 
@@ -71,7 +91,7 @@ consChart dls c =
 -- ever want to explicitly manipulate the chart state. Instead, we want to use
 -- special ways of accessing the chart.
 
-type Matcher d l a = StateT (Chart d l) [] a
+type Matcher d l a = StateT ([String],Chart d l) [] a
 
 
 
@@ -84,10 +104,10 @@ type Matcher d l a = StateT (Chart d l) [] a
 
 nextData :: Matcher d l d
 nextData =
-  StateT $ \c ->
+  StateT $ \(ws,c) ->
     do (_,es) <- M.toList (edges c)
-       Edge d r <- es
-       return (d,r)
+       Edge ws' d r <- es
+       return (d,(ws++ws',r))
 
 
 
@@ -123,9 +143,9 @@ nextData =
 
 nextLabel :: Ord l => Matcher d l l
 nextLabel =
-  StateT $ \c ->
+  StateT $ \(ws,c) ->
     do (l,es) <- M.toList (edges c)
-       return (l, Chart (M.fromList [(l,es)]))
+       return (l, (ws,Chart (M.fromList [(l,es)])))
 
 
 
@@ -149,7 +169,7 @@ matchRuleOnChart :: (Eq d, Ord l) => Rule d l -> Chart d l -> Chart d l
 matchRuleOnChart r c =
   Chart $ M.fromListWith
             (++)
-            [ (l,[Edge d c']) | ((d,l),c') <- runStateT r c ]
+            [ (l,[Edge ws d c']) | ((d,l),(ws,c')) <- runStateT r ([],c) ]
 
 
 
@@ -256,7 +276,7 @@ saturateChart g c =
 -- according to the grammar.
 
 addToChart :: (Eq d, Ord l)
-           => Grammar d l -> [(d,l)] -> Chart d l -> Chart d l
+           => Grammar d l -> [([String],d,l)] -> Chart d l -> Chart d l
 addToChart g dls c = saturateChart g (consChart dls c)
 
 
@@ -266,7 +286,7 @@ addToChart g dls c = saturateChart g (consChart dls c)
 -- An edge spans a chart if the chart after it is the empty chart.
 
 isSpan :: Edge d l -> Bool
-isSpan (Edge _ (Chart m)) = M.null m
+isSpan (Edge _ _ (Chart m)) = M.null m
 
 
 
@@ -281,19 +301,20 @@ type Lexer d l = String -> [(d,l)]
 
 
 -- We can build a chart from some sequence of lists of labeled data by adding
--- the data to the empty chart one piece at a time.
+-- the data to the empty chart one piece at a time. If a word is unknown, we
+-- return an error with that word.
 
 buildChart :: (Eq d, Ord l)
            => Grammar d l
            -> Lexer d l
            -> [String]
-           -> Maybe (Chart d l)
+           -> Either String (Chart d l)
 buildChart g lx input = go input emptyChart
   where
-    go [] acc = Just acc
+    go [] acc = Right acc
     go (w:ws) acc = case lx w of
-      [] -> Nothing
-      dls -> go ws (addToChart g dls acc)
+      [] -> Left w
+      dls -> go ws (addToChart g [ ([w],d,l) | (d,l) <- dls ] acc)
 
 
 
@@ -305,9 +326,67 @@ buildChart g lx input = go input emptyChart
 spanningEdges :: Chart d l -> [(d,l)]
 spanningEdges c = 
   do (l,es) <- M.toList (edges c)
-     e@(Edge d _) <- es
+     e@(Edge _ d _) <- es
      guard (isSpan e)
      return (d,l)
+
+
+
+
+
+-- | There are two kinds of parse errors. Either a unknown word, or an
+-- incomplete parse. If there's a unknown word, we simply wrap up that word.
+-- If there's an incomplete parse, we wrap up the failing chart.
+
+data ParseError d l
+  = UnknownWord String
+  | IncompleteParse (Chart d l)
+  deriving (Generic)
+
+instance (B.Binary d, B.Binary l) => B.Binary (ParseError d l)
+instance (ToJSON d, ToJSON l) => ToJSON (ParseError d l)
+
+prettyParseError
+  :: (d -> String)
+  -> (l -> String)
+  -> ParseError d l -> ParseError String String
+prettyParseError _ _ (UnknownWord w) =
+  UnknownWord w
+prettyParseError pd pl (IncompleteParse c) =
+  IncompleteParse (prettyChartDataAndLabels pd pl c)
+
+
+
+
+
+-- | A 'BracketedSequence' is a string of words from the input together with
+-- data and a label. It corresponds to an edge in a chart, when the chart is
+-- transformed into a list of bracketted sequences.
+
+data BracketedSequence d l
+  = BracketedSequence
+    { sequenceWords :: String
+    , sequenceData :: d
+    , sequenceLabel :: l
+    }
+  deriving (Generic)
+
+instance (ToJSON d, ToJSON l) => ToJSON (BracketedSequence d l)
+
+
+
+
+
+-- | We can convert a chart to a list of bracketted sequences.
+
+chartToBracketedSequences :: Chart d l -> [[BracketedSequence d l]]
+chartToBracketedSequences (Chart m) =
+  case M.toList m of
+    [] -> [[]]
+    m' -> do (l,es) <- m'
+             Edge ws d r <- es
+             rest <- chartToBracketedSequences r
+             return $ BracketedSequence (unwords ws) d l : rest
 
 
 
@@ -323,8 +402,14 @@ spanningEdges c =
 -- matcher are the first in the chart. This corresponds to parsing from right
 -- to left.
 
-parse :: (Eq d, Ord l) => Grammar d l -> Lexer d l -> String -> [(d,l)]
+parse :: (Eq d, Ord l)
+      => Grammar d l
+      -> Lexer d l
+      -> String
+      -> Either (ParseError d l) [(d,l)]
 parse g lx input =
   case buildChart g lx (reverse (words input)) of
-    Nothing -> []
-    Just c -> spanningEdges c
+    Left w -> Left (UnknownWord w)
+    Right c -> case spanningEdges c of
+      [] -> Left (IncompleteParse c)
+      es -> Right es
