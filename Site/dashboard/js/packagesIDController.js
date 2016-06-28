@@ -230,8 +230,9 @@ angular.module('leApp').
     };
     
     $scope.saveFileChanges = function () {
+      $scope.packageInfo.packageNeedsBuild = true;
+      
       $scope.fileEditing.hasError = false;
-      $scope.fileEditing.waiting = true;
       
       var updateInfo = {
         name: $scope.fileEditing.name,
@@ -240,8 +241,6 @@ angular.module('leApp').
       };
       
       let successCallback = function () {
-        $scope.fileEditing.waiting = false;
-        
         $scope.fileInfo.name = $scope.fileEditing.name;
         $scope.fileInfo.description = $scope.fileEditing.description;
         $scope.fileInfo.sourceCode = $scope.fileEditing.sourceCode;
@@ -256,7 +255,6 @@ angular.module('leApp').
       
       let errorCallback = function (response) {
         $scope.fileEditing.hasError = true;
-        $scope.fileEditing.waiting = false;
         
         $scope.fileEditing.error = response.data.replace(/\n/g,"<br/>");
       };
