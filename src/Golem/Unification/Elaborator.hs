@@ -116,6 +116,8 @@ data ElabState
     , _resetPoints :: ResetPoints
     , _resetPointsInScope :: [String]
     , _shiftsInScope :: [String]
+    , _holeContext :: Context
+    , _contextsForHoles :: [(FreeVar,Context)]
     }
 L.makeLenses ''ElabState
 
@@ -139,7 +141,23 @@ runElaborator :: Elaborator a
 runElaborator e sig defs ctx als modname mods odata ofuns =
   runStateT
     e
-    (ElabState sig defs ctx [] (MetaVar 0) als modname mods odata ofuns 0 [] [] [])
+    (ElabState
+      sig
+      defs
+      ctx
+      []
+      (MetaVar 0)
+      als
+      modname
+      mods
+      odata
+      ofuns
+      0
+      []
+      []
+      []
+      []
+      [])
 
 
 runElaborator0 :: Elaborator a -> Either String (a,ElabState)

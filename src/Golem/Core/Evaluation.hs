@@ -241,6 +241,8 @@ instance ParamEval Int (Env EnvKey Term) Term where
   paramEval l (In (Postulate a)) =
     do ea <- underF (paramEval l) a
        return $ In (Postulate ea)
+  paramEval _ (In (Hole n)) =
+    return $ In (Hole n)
       
 
 

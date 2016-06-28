@@ -82,6 +82,7 @@ data TermF r
   | Remember MetaVar r
   | External Int r
   | Postulate r
+  | Hole String
   deriving (Functor,Foldable,Traversable)
 
 
@@ -134,6 +135,8 @@ instance Eq1 TermF where
     i == i' && a == a'
   eq1 (Postulate a) (Postulate a') =
     a == a'
+  eq1 (Hole n) (Hole n') =
+    n == n'
   eq1 _ _ =
     False
 
@@ -142,7 +145,7 @@ data TermFConName
   = DEFINED | ANN | STR | MKSTR | TYPE | FUN | LAM | APP | CON | CASE
   | RECORDTYPE | RECORDCON | RECORDPROJ | QUOTEDTYPE | QUOTE | UNQUOTE
   | CONTINUE | SHIFT | RESET | REQUIRE
-  | EXTERNAL | POSTULATE
+  | EXTERNAL | POSTULATE | HOLE
   deriving (Eq,Ord)
 
 instance Ord1 TermF where
@@ -192,6 +195,8 @@ instance Ord1 TermF where
     compare i i' `mappend` compare a a'
   compare1 (Postulate a) (Postulate a') =
     compare a a'
+  compare1 (Hole n) (Hole n') =
+    compare n n'
   compare1 x y = compare (conName x) (conName y)
     where
       conName :: TermF a -> TermFConName
@@ -218,6 +223,7 @@ instance Ord1 TermF where
       conName (Remember _ _) = undefined
       conName (External _ _) = EXTERNAL
       conName (Postulate _) = POSTULATE
+      conName (Hole _) = HOLE
 
 
 instance BinaryF TermF where
@@ -302,6 +308,9 @@ instance BinaryF TermF where
   putF (Postulate a) =
     do put (21 :: Word8)
        put a
+  putF (Hole n) =
+    do put (22 :: Word8)
+       put n
   getF =
     do tag <- getWord8
        case tag of
@@ -327,6 +336,7 @@ instance BinaryF TermF where
          19 -> liftM2 Require get get
          20 -> liftM2 External get get
          21 -> liftM Postulate get
+         22 -> liftM Hole get
          _ -> undefined
 
 
@@ -663,6 +673,9 @@ postulateH a = In (Postulate (scope [] a))
 mkStrH :: String -> Term
 mkStrH s = In (MkStr s)
 
+holeH :: String -> Term
+holeH n = In (Hole n)
+
 
 
 
@@ -826,6 +839,12 @@ instance Parens Term where
     ,AssertionPatArg,RecFieldType,RecFieldVal,RecProjArg,QuotedTypeArg
     ,QuoteArg,UnquoteArg,ContinueArg,ShiftArg,ResetArg,RequireType,RequireBody
     ]
+  parenLoc (In (Hole _)) =
+    [AnnTerm,AnnType,FunArg,FunRet,LamBody,AppFun,AppArg Expl,AppArg Impl
+    ,ConArg Expl,ConArg Impl,CaseArg,MotiveArg,MotiveRet,ClauseBody
+    ,AssertionPatArg,RecFieldType,RecFieldVal,RecProjArg,QuotedTypeArg
+    ,QuoteArg,UnquoteArg,ContinueArg,ShiftArg,ResetArg,RequireType,RequireBody
+    ]
   
   parenRec (Var v) =
     name v
@@ -940,6 +959,8 @@ instance Parens Term where
       ++ parenthesize Nothing (instantiate0 a) ++ " >"
   parenRec (In (Postulate a)) =
     "<postulate " ++ parenthesize Nothing (instantiate0 a) ++ " >"
+  parenRec (In (Hole n)) =
+    "?" ++ n
 
 
 

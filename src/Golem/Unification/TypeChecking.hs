@@ -178,6 +178,25 @@ typeInContext v@(FreeVar n) =
        Just t -> return t
 
 
+-- | We can get the type of a hole in the hole context. If the hole isn't
+-- in the context yet, we add it with a new meta for its type.
+
+typeInHoleContext :: FreeVar -> Elaborator (QLJ Term)
+typeInHoleContext v =
+  do hctx <- getElab holeContext
+     case lookup v hctx of
+       Nothing ->
+         do m <- nextElab nextMeta
+            curLvl <- getElab quoteLevel
+            putElab holeContext
+                    ((v, QLJ (Var (Meta m)) curLvl) : hctx)
+            ctxs <- getElab contextsForHoles
+            ctx <- getElab context
+            putElab contextsForHoles ((v,ctx):ctxs)
+            return (QLJ (Var (Meta m)) curLvl)
+       Just t -> return t
+
+
 -- | We can extend the set of reset positions in scope currently.
 
 extendResets :: [String] -> Elaborator a -> Elaborator a
@@ -520,6 +539,14 @@ inferify (In (External i a)) =
 inferify (In (Postulate a)) =
   do ElaboratedTerm ea <- checkify (instantiate0 a) (NormalTerm (In Type))
      return (ElaboratedTerm (postulateH ea), ea)
+inferify (In (Hole n)) =
+  do QLJ t lvl <- typeInHoleContext (FreeVar n)
+     curLvl <- getElab quoteLevel
+     unless (curLvl == lvl)
+       $ throwError $ "Mismatching quote levels for "
+                        ++ pretty (In (Hole n)) ++ ". Expecting "
+                        ++ show lvl ++ " but found " ++ show curLvl
+     return (ElaboratedTerm (In (Hole n)), t)
 
 
 

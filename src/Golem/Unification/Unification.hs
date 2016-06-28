@@ -184,6 +184,9 @@ instance MonadUnify TermF Elaborator where
        return [ Equation (instantiate0 a1) (instantiate0 a2) ]
   equate (Postulate a1) (Postulate a2) =
     return [ Equation (instantiate0 a1) (instantiate0 a2) ]
+  equate (Hole n) (Hole n') =
+    do guard (n == n')
+       return []
   equate l r =
     throwError $ "Cannot unify " ++ pretty (In l) ++ " with " ++ pretty (In r)
 
