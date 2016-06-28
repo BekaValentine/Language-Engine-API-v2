@@ -308,7 +308,12 @@ solve defs resources0 m =
          Nothing -> []
          Just sortedProblems ->
            let resourcesByMeta =
-                 do (meta,ctx) <- captureScopes em
+                 do (meta,ctx) <-
+                      captureScopes em ++
+                      concat
+                        [ captureScopes a
+                        | (_,a) <- sortedProblems
+                        ]
                     let newResources =
                           [ (Var (Free v), x)
                           | (v,x) <- ctx
