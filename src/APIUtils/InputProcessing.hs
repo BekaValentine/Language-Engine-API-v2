@@ -1,4 +1,5 @@
 {-# OPTIONS -Wall #-}
+{-# LANGUAGE ViewPatterns #-}
 
 
 
@@ -68,8 +69,10 @@ processInput pinfo str =
     grammr = convertRulesToGrammar (grammarRules pinfo)
     discourseContext = worldModelToWitnessedTerms (worldModel pinfo)
     solutions parses = do
-      (sem,In (Con (Absolute "LE" "EXPR") [])) <- parses
-      Just (In (Quote msc)) <- return (evalTerm (environment pinfo) sem)
+      (sem,In (Con (Absolute "LE" "QCDone")
+                   [(_,instantiate0 -> In (Con (Absolute "LE" "EXPR") _))]))
+        <- parses
+      Just (In (Quote msc)) <- return (evalTermAtLevel (environment pinfo) sem 0)
       let m = instantiate0 msc
           decontm = decontinuize m
       solvedm <- solve (environment pinfo) discourseContext decontm
