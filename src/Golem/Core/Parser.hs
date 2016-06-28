@@ -8,7 +8,6 @@ module Golem.Core.Parser where
 import Control.Monad.Reader
 import Data.List (foldl')
 import Text.Parsec
-import Text.Parsec.Error
 import qualified Text.Parsec.Token as Token
 
 import Golem.Utils.ABT hiding (shift)
@@ -20,8 +19,6 @@ import Golem.Core.ConSig
 import Golem.Core.DeclArg
 import Golem.Core.Term
 import Golem.Core.Program
-
-import Debug
 
 
 
@@ -64,9 +61,10 @@ languageDef = Token.LanguageDef
                   ,"renaming","to","Rec","family","instance"
                   ,"Quoted","continue","shift","reset"
                   ,"from","in","require","String"
+                  ,"forall"
                   ]
               , Token.reservedOpNames =
-                  ["|","||","->","\\",":","::","=",".","`","~"]
+                  ["|","||","->","\\",":","::","=",",",".","`","~","\\\\","//",">","=>","*"]
               , Token.caseSensitive = True
               }
 
@@ -114,7 +112,230 @@ decName =
      identifier
 
 
--- term parsers
+
+
+
+
+
+-- * Term Parsers
+
+
+-- | The parser 'term' captures the grammar of terms as specified by
+--
+-- @
+--   <term> ::= <binderFunType>
+--            | <lambda>
+--            | <require>
+--            | <reset>
+--            | <shift>
+--            | <catMagic>
+--            | <ruleMagic>
+--            | (<conData> | <continue> | <quotedType>)
+--                >>=? ( <annotationSuffix>
+--                     | <noBinderFunTypeSuffix>
+--                     )
+--            | (<quote> | <unquote>)
+--                >>=? <applicationSuffix>
+--                >>=? ( <annotationSuffix> 
+--                     | <noBinderFunTypeSuffix>
+--                     )
+--            | (<variable> | <dottedName> | <parenTerm> | <typeType>
+--                  | <caseExp> | <recordCon> | <recordType> | <stringType>
+--                  | <stringVal>)
+--                >>=? <recordProjSuffix>
+--                >>=? <applicationSuffix>
+--                >>=? ( <annotationSuffix>
+--                     | <noBinderFunTypeSuffix>
+--                     )
+--   <annotationSuffix> ::= ":" <annRight>
+--   <noBinderFunTypeSuffix> ::= "->" <funRet>
+--   <applicationSuffix> ::= <appArg>+
+--   <recordProjSuffix> ::= ("." <varName>)+
+--   <parenTerm> ::= "(" <term> ")"
+--   <variable> ::= <varName>\"_"
+--   <dottedName> ::= <decName> "." <varName>
+--   <typeType> ::= "Type"
+--   <stringType> ::= "String"
+--   <stringVal> ::= <stringLit>
+--   <explFunType> ::= "(" <varName>+ ":" <term> ")" "->" <funRet>
+--   <implFunType> ::= "{" <varName>+ ":" <term> "}" "->" <funRet>
+--   <binderFunType> ::= <explFunType> | <implFunType>
+--   <explArg> ::= <varName>
+--   <implArg> ::= "{" <varName> "}"
+--   <lambdaArg> ::= <explArg> | <implArg>
+--   <lambda> ::= "\\" <lambdaArg>+ "->" <lamBody>
+--   <bareCon> ::= <decName>
+--   <dottedCon> ::= <decName> "." <decName>
+--   <constructor> ::= <dottedCon> | <bareCon>
+--   <noArgConData> ::= <constructor>
+--   <conData> ::= <constructor> <conArg>*
+--   <assertionPattern> ::= "." <assertionPatternArg>
+--   <varPattern> ::= <varName>
+--   <noArgConPattern> ::= <constructor>
+--   <conPattern> ::= <constructor> <conPatternArg>*
+--   <parenPattern> ::= "(" <pattern> ")"
+--   <pattern> ::= <assertionPattern>
+--               | <parenPattern>
+--               | <conPattern>
+--               | <varPattern>
+--   <consMotivePart> ::= "(" <varName>+ ":" <term> ")" "||" <caseMotiveParts>
+--   <nilMotivePart> ::= <term>
+--   <caseMotive> ::= <consMotivePart> | <nilMotivePart>
+--   <clause> ::= (<pattern> $1 "||") "->" <term>
+--   <caseExp> ::= "case" (<caseArg> $1 "||") "motive" <caseMotive>
+--                 "of" "|"? (<clause> $ "|") "end"
+--   <recordType> ::= "Rec" "{" (<fieldDecl> $ ",") "}"
+--   <fieldDecl> ::= (<varName>\"_") ":" <term>
+--   <emptyRecordCon> ::= "{" "}"
+--   <nonEmptyRecordCon> ::= "{" ((<varName>\"_") "=" $ ",") "}"
+--   <recordCon> ::= <emptyRecordCon> | <nonEmptyRecordCon>
+--   <bareQuotedType> ::= "Quote" <quotedTtpeArg>
+--   <annotatedQuotedType> ::= "Quote" "[" (<varName> $ ",") "]"
+--                             <quotedTypeArg>
+--   <quotedType> ::= <bareQuotedType> | <annotatedQuotedType>
+--   <quote> ::= "`" <quoteArg>
+--   <unquote> ::= "~" <unquoteArg>
+--   <continue> ::= "continue" <continueArg>
+--   <shift> ::= "shift" <varName> "in" <shiftArg>
+--   <reset> ::= "reset" <varName> "in" <resetArg>
+--   <require> ::= "require" <varName> ":" <requireType> "in" <requireBody>
+--   <catMagic> ::= "[cat|" (<forallCategory> | <category>) "|]"
+--   <forallCategory> ::= "forall"
+--                          ("(" <varName>+ ":" <term> ")")+ "." <category>
+--   <category> ::= <cat>
+--   <cat> ::= (<bareCat> | <parensCat>)
+--               >>=? ( <underCatSuffix>
+--                    | <overCatSuffix>
+--                    | <gapCatSuffix>
+--                    )
+--   <bareCat> ::= <conData>
+--               | <continue>
+--               | <quotedType>
+--               | <quote>
+--               | <unquote>
+--               | <variable>
+--               | <dottedName>
+--               | <parenTerm>
+--               | <typeType>
+--               | <caseExp>
+--               | <recordCon>
+--               | <recordType>
+--               | <stringType>
+--               | <stringVal>
+--   <parensCat> ::= "(" <cat> ")"
+--   <underCatSuffix> ::= "\\" <underCatRet>
+--   <overCatSuffix> ::= "//" <overCatArg>
+--   <gapCatSuffix> ::= ">" <gapCatRet>
+--   <ruleMagic> ::= "[rule|" (<forallRule> | <rule>) "|]"
+--   <forallRule> ::= "forall"
+--                      ("(" <varName>+ ":" <term> ")")+ "." <rule>
+--   <rule> ::= (<ruleCat> $1 "*") "=>" <ruleCat>
+--   <ruleCat> ::= 
+--   <annRight> ::= <binderFunType>
+--                | <lambda>
+--                | <require>
+--                | <reset>
+--                | <catMagic>
+--                | <ruleMagic>
+--                | (<conData> | <quotedType> | <continue>)
+--                    >>=? <noBinderFunTypeSuffix>
+--                | (<quote> | <unquote>)
+--                    >>=? <applicationSuffix>
+--                    >>=? <noBinderFunTypeSuffix>
+--                | (<parenTerm> | <variable> | <dottedName> | <recordType>
+--                      | <recordCon> | <stringType> | <stringVal>
+--                      | <typeType>)
+--                    >>=? <recordProjSuffix>
+--                    >>=? <applicationSuffix>
+--                    >>=? <noBinderFunTypeSuffix>
+--   <funRet> ::= <term>
+--   <lamBody> ::= <term>
+--   <explAppArg> ::= <noArgConData>
+--                  | <quote>
+--                  | <unquote>
+--                  | (<parenTerm> | <variable> | <dottedName>
+--                        | <recordType> | <recordCon> | <stringType>
+--                        | <stringVal> | <typeType>)
+--                      >>=? <recordProjSuffix>
+--   <implAppArg> ::= "{" <term> "}"
+--   <appArg> ::= <explAppArg> | <implAppArg>
+--   <explConArg> ::= <noArgConData>
+--                  | <quote>
+--                  | <unquote>
+--                  | (<parenTerm> | <variable> | <dottedName>
+--                        | <recordType> | <recordCon> | <stringType>
+--                        | <stringVal> | <typeType>)
+--                      >>=? <recordProjSuffix>
+--   <implConArg> ::= "{" <term> "}"
+--   <conArg> ::= <explConArg> | <implConArg>
+--   <caseArg> ::= <term>
+--   <explConPatternArg> ::= <assertionPattern>
+--                         | <parenPattern>
+--                         | <noArgConPattern>
+--                         | <varPattern>
+--   <implConPatternArg> ::= "{" <pattern> "}"
+--   <conPatternArg> ::= <explConPatternArg> | <implConPatternArg>
+--   <assertionPatternArg> ::= <parenPattern>
+--                           | <noArgConData>
+--                           | <variable>
+--                           | <typeType>
+--                           | <stringType>
+--                           | <stringVal>
+--   <quotedTypeArg> ::= <noArgConData>
+--                     | <caseExp>
+--                     | <quote>
+--                     | <unquote>
+--                     | (<parenTerm> | <variable> | <dottedName>
+--                           | <recordType> | <recordCon> | <stringType>
+--                           | <stringVal> | <typeType>)
+--                         >>=? <recordProjSuffix>
+--   <quoteArg> ::= <noArgConData>
+--                | <caseExp>
+--                | (<patternTerm> | <variable> | <dottedName> | <recordType>
+--                      | <recordCon> | <stringType> | <stringVal>
+--                      | <typeType>)
+--                    >>=? <recordProjSuffix>
+--   <unquoteArg> ::= <noArgConData>
+--                  | <caseExp>
+--                  | (<patternTerm> | <variable> | <dottedName>
+--                        | <recordType> | <recordCon> | <stringType> 
+--                        | <stringVal> | <typeType>)
+--                      >>=? <recordProjSuffix>
+--   <continueArg> ::= <noArgConData>
+--                   | <caseExp>
+--                   | <quote>
+--                   | <unquote>
+--                   | (<patternTerm> | <variable> | <dottedName>
+--                         | <recordType> | <recordCon> | <stringType>
+--                         | <stringVal> | <typeType>)
+--                       >>=? <recordProjSuffix>
+--   <shiftArg> ::= <term>
+--   <resetArg> ::= <term>
+--   <requireType> ::= <conData>
+--                   | <caseExp>
+--                   | <quotedType>
+--                   | <continue>
+--                   | (<quote> | <unquote>)
+--                       >>=? <applicationSuffix>
+--                   | (<parenTerm> | <variable> | <dottedName>
+--                         | <recordType> | <recordCon> | <stringType> 
+--                         | <stringVal> | <typeType>)
+--                       >>=? <recordProjSuffix>
+--                       >>=? <applicationSuffix>
+--   <requireBody> ::= <term>
+--   <underCatRet> ::= <conData> | <continue> | <quotedType> | <quote>
+--                   | <unquote> | <variable> | <dottedName> | <parenTerm>
+--                   | <typeType> | <caseExp> | <recordCon> | <recordType>
+--                   | <stringType> | <stringVal>
+--   <overCatArg> ::= <conData> | <continue> | <quotedType> | <quote>
+--                  | <unquote> | <variable> | <dottedName> | <parenTerm>
+--                  | <typeType> | <caseExp> | <recordCon> | <recordType>
+--                  | <stringType> | <stringVal>
+--   <gapCatRet> ::= <conData> | <continue> | <quotedType> | <quote>
+--                 | <unquote> | <variable> | <dottedName> | <parenTerm>
+--                 | <typeType> | <caseExp> | <recordCon> | <recordType>
+--                 | <stringType> | <stringVal>
+-- @
 
 term :: Parsec String u Term
 term =
@@ -123,40 +344,18 @@ term =
   <|> require
   <|> reset
   <|> shift
-  <|> debugSeq "A" ((conData <|> continue <|> quotedType)
-        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix))
-  <|> debugSeq "B" ((quote <|> unquote)
+  <|> catMagic
+  <|> ruleMagic
+  <|> (conData <|> continue <|> quotedType)
+        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix)
+  <|> (quote <|> unquote)
         >>=? applicationSuffix
-        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix))
-  <|> debugSeq "C" ((debugSeq "C1" variable <|> debugSeq "C2" dottedName <|> debugSeq "C3" parenTerm <|> debugSeq "C4" typeType <|> debugSeq "C5" caseExp
-           <|> debugSeq "C6" recordCon <|> debugSeq "C7" recordType <|> debugSeq "C8" stringType <|> debugSeq "C9" stringVal)
+        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix)
+  <|> (variable <|> dottedName <|> parenTerm <|> typeType <|> caseExp
+           <|> recordCon <|> recordType <|> stringType <|> stringVal <|> hole)
         >>=? recordProjSuffix
         >>=? applicationSuffix
-        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix))
-  
-{-}
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
-  -}
+        >>=? (annotationSuffix <|>? noBinderFunTypeSuffix)
 
 annotationSuffix :: Term -> Parsec String u Term
 annotationSuffix m =
@@ -167,7 +366,7 @@ annotationSuffix m =
 noBinderFunTypeSuffix :: Term -> Parsec String u Term
 noBinderFunTypeSuffix arg =
   do try $ reservedOp "->"
-     ret <- term
+     ret <- funRet
      let xsFreshDummies =
            unBNSString
              (dummiesToFreshNames
@@ -190,11 +389,7 @@ recordProjSuffix m =
      return $ foldl' recordProjH m (f:fs)
 
 parenTerm :: Parsec String u Term
-parenTerm =
-  do debug_ "Parens1"
-     x <- parens term
-     debug_ "Parens2"
-     return x
+parenTerm = parens term
 
 variable :: Parsec String u Term
 variable =
@@ -209,32 +404,6 @@ dottedName =
     reservedOp "."
     valName <- varName
     return $ In (Defined (DottedLocal modName valName))
-
-recordProj :: Parsec String u Term
-recordProj = do (m,f) <- try $ do
-                  m <- recProjArg
-                  _ <- reservedOp "."
-                  f <- varName
-                  return (m,f)
-                fieldNames <- many $ do
-                  _ <- reservedOp "."
-                  varName
-                return $ foldl' recordProjH m (f:fieldNames)
-
-recProjArg :: Parsec String u Term
-recProjArg = recordType <|> recordCon <|> dottedName <|> variable <|> parenTerm <|> typeType <|> stringType <|> stringVal
-
-dottedThings :: Parsec String u Term
-dottedThings = recordProj <|> dottedName
-
-annotation :: Parsec String u Term
-annotation =
-  do m <- try $ do
-       m <- annLeft
-       reservedOp ":"
-       return m
-     t <- annRight
-     return $ annH m t
 
 typeType :: Parsec String u Term
 typeType =
@@ -294,23 +463,6 @@ implFunType =
 binderFunType :: Parsec String u Term
 binderFunType = explFunType <|> implFunType
 
-noBinderFunType :: Parsec String u Term
-noBinderFunType =
-  do arg <- try $ do
-       arg <- funArg
-       reservedOp "->"
-       return arg
-     ret <- funRet
-     let xsFreshDummies =
-           unBNSString
-             (dummiesToFreshNames
-                (freeVarNames ret)
-                (BNSString "_"))
-     return $ funH Expl xsFreshDummies arg ret
-
-funType :: Parsec String u Term
-funType = binderFunType <|> noBinderFunType
-
 explArg :: Parsec String u (Plicity,String)
 explArg =
   do x <- varName
@@ -339,15 +491,6 @@ lambda =
      return $ helperFold (\(plic,x) -> lamH plic x)
                          xsFreshDummies
                          b
-
-application :: Parsec String u Term
-application =
-  do (f,pa) <- try $ do
-       f <- appFun
-       pa <- appArg
-       return (f,pa)
-     pas <- many appArg
-     return $ foldl' (\f' (plic,a') -> appH plic f' a') f (pa:pas)
 
 bareCon :: Parsec String u Name
 bareCon =
@@ -454,7 +597,7 @@ caseExp :: Parsec String u Term
 caseExp =
   do reserved "case"
      ms <- caseArg `sepBy1` reservedOp "||"
-     reservedOp "motive"
+     reserved "motive"
      mot <- caseMotive
      reserved "of"
      optional (reservedOp "|")
@@ -465,7 +608,7 @@ caseExp =
 recordType :: Parsec String u Term
 recordType =
   do reserved "Rec"
-     xts <- braces $ debugSeq "fields" (fieldDecl `sepBy` reservedOp ",")
+     xts <- braces $ fieldDecl `sepBy` reservedOp ","
      return $ recordTypeH xts
   where
     fieldDecl =
@@ -516,7 +659,7 @@ annotatedQuotedType =
   do _ <- try $ do
             reserved "Quoted"
             symbol "["
-     resets <- many varName
+     resets <- sepBy varName (reservedOp ",")
      _ <- symbol "]"
      a <- quotedTypeArg
      return $ quotedTypeH resets a
@@ -575,138 +718,167 @@ require =
                 (BNSString x))
      return $ requireH xFreshDummy a m
 
-annLeft :: Parsec String u Term
-annLeft =
-      application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
+hole :: Parsec String u Term
+hole =
+  do _ <- try $ symbol "?"
+     n <- varName
+     return $ holeH n
+
+catMagic :: Parsec String u Term
+catMagic =
+  do _ <- try $ symbol "[cat|"
+     r <- forallCategory <|> category
+     _ <- symbol "|]"
+     return r
+
+forallCategory :: Parsec String u Term
+forallCategory =
+  do try $ reserved "forall"
+     xsas <- many1 forallVars
+     reservedOp "."
+     b <- category
+     let xas :: [(String,Term)]
+         xas = [ (x,a) | (xs,a) <- xsas, x <- xs ]
+     return $ helperFold forallCatH xas b
+  where
+    forallVars :: Parsec String u ([String],Term)
+    forallVars =
+      parens $ do
+        xs <- many1 varName
+        reservedOp ":"
+        a <- term
+        return (xs,a)
+    
+    forallCatH :: (String,Term) -> Term -> Term
+    forallCatH (x,a) b =
+      conH (Absolute "LE" "QCForall")
+           [(Expl,a),(Expl,lamH Expl x b)]
+
+category :: Parsec String u Term
+category =
+  do c <- cat
+     return $
+       conH (Absolute "LE" "QCDone") [(Expl,c)]
+
+cat :: Parsec String u Term
+cat =
+  (bareCat <|> parensCat)
+    >>=? (underCatSuffix <|>? overCatSuffix <|>? gapCatSuffix)
+
+bareCat :: Parsec String u Term
+bareCat =
+      conData
   <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> dottedName
+
+parensCat :: Parsec String u Term
+parensCat = parens cat
+
+underCatSuffix :: Term -> Parsec String u Term
+underCatSuffix arg =
+  do try $ reservedOp "\\\\"
+     ret <- underCatRet
+     return $
+       conH (Absolute "LE" "Under")
+            [(Expl,arg),(Expl,ret)]
+
+overCatSuffix :: Term -> Parsec String u Term
+overCatSuffix ret =
+  do try $ reservedOp "//"
+     arg <- overCatArg
+     return $
+       conH (Absolute "LE" "Over")
+            [(Expl,ret),(Expl,arg)]
+
+gapCatSuffix :: Term -> Parsec String u Term
+gapCatSuffix ret =
+  do try $ reservedOp ">"
+     arg <- overCatArg
+     return $
+       conH (Absolute "LE" "Gap")
+            [(Expl,ret),(Expl,arg)]
+
+ruleMagic :: Parsec String u Term
+ruleMagic =
+  do _ <- try $ symbol "[rule|"
+     r <- forallRule <|> rule
+     _ <- symbol "|]"
+     return r
+
+forallRule :: Parsec String u Term
+forallRule =
+  do try $ reserved "forall"
+     xsas <- many1 forallVars
+     reservedOp "."
+     b <- rule
+     let xas :: [(String,Term)]
+         xas = [ (x,a) | (xs,a) <- xsas, x <- xs ]
+     return $ helperFold forallRuleH xas b
+  where
+    forallVars :: Parsec String u ([String],Term)
+    forallVars =
+      parens $ do
+        xs <- many1 varName
+        reservedOp ":"
+        a <- term
+        return (xs,a)
+    
+    forallRuleH :: (String,Term) -> Term -> Term
+    forallRuleH (x,a) b =
+      conH (Absolute "LE" "QRForall")
+           [(Expl,a),(Expl,lamH Expl x b)]
+
+rule :: Parsec String u Term
+rule =
+  do args <- sepBy1 ruleCatArgRet (reservedOp "*")
+     reservedOp "=>"
+     ret <- ruleCatArgRet
+     let rle =
+           helperFold
+             ruleH
+             args
+             (conH (Absolute "LE" "RDone") [(Expl,ret)])
+     return $
+       conH (Absolute "LE" "QRDone") [(Expl,rle)]
+  where
+    ruleH :: Term -> Term -> Term
+    ruleH a r =
+      conH (Absolute "LE" "RArg") [(Expl,a),(Expl,r)]
 
 annRight :: Parsec String u Term
 annRight =
-      funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
+      binderFunType
   <|> lambda
-  <|> shift
-  <|> reset
   <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
-
-funArg :: Parsec String u Term
-funArg =
-      application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> reset
+  <|> shift
+  <|> catMagic
+  <|> ruleMagic
+  <|> (conData <|> quotedType <|> continue)
+        >>=? noBinderFunTypeSuffix
+  <|> (quote <|> unquote)
+        >>=? applicationSuffix
+        >>=? noBinderFunTypeSuffix
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
+        >>=? applicationSuffix
+        >>=? noBinderFunTypeSuffix
 
 funRet :: Parsec String u Term
-funRet =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+funRet = term
 
 lamBody :: Parsec String u Term
-lamBody =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
-
-appFun :: Parsec String u Term
-appFun =
-      dottedThings
-  <|> parenTerm
-  <|> quote
-  <|> unquote
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+lamBody = term
 
 rawExplAppArg :: Parsec String u Term
 rawExplAppArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
+      noArgConData
   <|> quote
   <|> unquote
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 explAppArg :: Parsec String u (Plicity,Term)
 explAppArg =
@@ -714,28 +886,7 @@ explAppArg =
      return (Expl,m)
 
 rawImplAppArg :: Parsec String u Term
-rawImplAppArg =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+rawImplAppArg = term
 
 implAppArg :: Parsec String u (Plicity,Term)
 implAppArg =
@@ -749,17 +900,12 @@ appArg =
 
 rawExplConArg :: Parsec String u Term
 rawExplConArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
+      noArgConData
   <|> quote
   <|> unquote
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 explConArg  :: Parsec String u (Plicity,Term)
 explConArg =
@@ -767,28 +913,7 @@ explConArg =
      return (Expl,m)
 
 rawImplConArg :: Parsec String u Term
-rawImplConArg =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+rawImplConArg = term
 
 implConArg :: Parsec String u (Plicity,Term)
 implConArg =
@@ -801,27 +926,7 @@ conArg =
   <|> implConArg
 
 caseArg :: Parsec String u Term
-caseArg =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+caseArg = term
 
 rawExplConPatternArg :: Parsec String u Pattern
 rawExplConPatternArg =
@@ -836,11 +941,7 @@ explConPatternArg =
      return (Expl,p)
 
 rawImplConPatternArg :: Parsec String u Pattern
-rawImplConPatternArg =
-      assertionPattern
-  <|> parenPattern
-  <|> conPattern
-  <|> varPattern
+rawImplConPatternArg = pattern
 
 implConPatternArg :: Parsec String u (Plicity,Pattern)
 implConPatternArg =
@@ -860,150 +961,84 @@ assertionPatternArg =
   <|> typeType
   <|> stringType
   <|> stringVal
+  <|> hole
 
 quotedTypeArg :: Parsec String u Term
 quotedTypeArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
+      noArgConData
+  <|> caseExp
   <|> quote
   <|> unquote
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 quoteArg :: Parsec String u Term
 quoteArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
+      noArgConData
   <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 unquoteArg :: Parsec String u Term
 unquoteArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
+      noArgConData
   <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 continueArg :: Parsec String u Term
 continueArg =
-      dottedThings
-  <|> parenTerm
-  <|> noArgConData
+      noArgConData
+  <|> caseExp
   <|> quote
   <|> unquote
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix
 
 shiftArg :: Parsec String u Term
-shiftArg =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+shiftArg = term
 
 resetArg :: Parsec String u Term
-resetArg =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+resetArg = term
 
 requireType :: Parsec String u Term
 requireType =
-      application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
+      conData
   <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+  <|> quotedType
+  <|> continue
+  <|> (quote <|> unquote)
+        >>=? applicationSuffix
+  <|> (parenTerm <|> variable <|> dottedName <|> recordType <|> recordCon
+          <|> stringType <|> stringVal <|> typeType <|> hole)
+        >>=? recordProjSuffix >>=? applicationSuffix
 
 requireBody :: Parsec String u Term
-requireBody =
-      annotation
-  <|> funType
-  <|> application
-  <|> continue
-  <|> dottedThings
-  <|> parenTerm
-  <|> lambda
-  <|> shift
-  <|> reset
-  <|> require
-  <|> conData
-  <|> quotedType
-  <|> quote
-  <|> unquote
-  <|> caseExp
-  <|> variable
-  <|> typeType
-  <|> stringType
-  <|> stringVal
-  <|> recordType
-  <|> recordCon
+requireBody = term
+
+underCatRet :: Parsec String u Term
+underCatRet =
+      bareCat
+  <|> parensCat
+
+overCatArg :: Parsec String u Term
+overCatArg =
+      bareCat
+  <|> parensCat
+
+gapCatArg :: Parsec String u Term
+gapCatArg =
+      bareCat
+  <|> parensCat
+
+ruleCatArgRet :: Parsec String u Term
+ruleCatArgRet =
+      bareCat
+  <|> parensCat
 
 parseTerm :: String -> Either String Term
 parseTerm str =
@@ -1013,30 +1048,77 @@ parseTerm str =
 
 
 
--- statement parsers
+-- * Statement Parsers
 
-eqTermDecl :: Parsec String u TermDeclaration
-eqTermDecl =
-  do (x,t) <- try $ do
+
+-- | The parser 'statement' captures the grammar of statements, defined as
+--
+-- @
+--    <statement> ::= <termDecl> | <typeDecl> | <resetDecl>
+--    <letDecl> ::= "let" x=<varName> ":" t=<term>
+--                  (<eqTermDeclSuffix(x,t)> | <whereTermDeclSuffix(x,t))
+--    <eqTermDeclSuffix(x,t)> ::= "=" <term> "end"
+--    <whereTermDeclSuffix(x,t)> ::= "where" "|"?
+--                                   (<patternMatchClause(x)> $1 "|") "end"
+--    <letFamilyDecl> ::= "let" "family" <varName> <typeArg>+ ":" <term> "end"
+--    <letInstanceDecl> ::= "let" "instance" n=<letInstanceName> "where" "|"?
+--                          (<instancePatternMatchClause(n)> $1 "|") "end"
+--    <letInstanceBareName> ::= <varName>\"_"
+--    <letInstanceDottedName> ::= <decName> "." <varName>
+--    <letInstanceName> ::= <letInstanceBareName> | <letInstanceDottedName>
+--    <instancePatternMatchClause(n)> ::= n <wherePattern>* "=" <term>
+--    <patternMatchClause(n)> ::= n <wherePattern>* "=" <term>
+--    <explWherePattern> ::= <assertionPattern>
+--                         | <parenPattern>
+--                         | <noArgConPattern>
+--                         | <varPattern>
+--    <implWherePattern> ::= "{" <pattern> "}"
+--    <wherePattern> ::= <explWherePattern> | <implWherePattern>
+--    <termDecl> ::= <letDecl> | <letFamilyDecl> | <letInstanceDecl>
+--    <alternative> ::= <decName> <alternativeArg>* ":" <term>
+--    <explAlternativeArg> ::= <varName>+ ":" <term>
+--    <implAlternativeArg> ::= "{" <varName>+ ":" <term> "}"
+--    <alternativeArg> ::= <explAlternativeArg> | <implAlternativeArg>
+--    <normalTypeDecl> ::= "data" <decName> <typeArg>*
+--                         (<emptyTypeDeclSuffix> | <nonEmptyTypeDeclSuffix>)
+--    <emptyTypeDeclSuffix> ::= "end"
+--    <nonEmptyTypeDeclSuffix> ::= "where" "|" (<alternative> $ "|") "end"
+--    <explTypeArg> ::= <varName>+ ":" <term>
+--    <implTypeArg> ::= "{" <varName>+ ":" <term> "}"
+--    <typeArg> ::= <explTypeArg> | <implTypeArg>
+--    <dataFamilyDecl> ::= "data" "family" <decName> <typeArg>* "end"
+--    <dataInstanceDecle> ::= "data" "instance" <constructor> "where" "|"?
+--                            (<alternative> $ "|") "end"
+--    <typeDecl> ::= <normalTypeDecl> | <dataFamilyDecl> | <dataInstanceDecl>
+--    <resetDecl> ::= "reset" <varName> "from" <term> "to" <term> "end"
+-- @
+
+statement :: Parsec String u Statement
+statement =
+     TmDecl <$> termDecl
+ <|> TyDecl <$> typeDecl
+ <|> ResetDecl <$> resetDecl
+
+letDecl :: Parsec String u TermDeclaration
+letDecl =
+  do x <- try $ do
        reserved "let"
        x <- varName
-       reservedOp ":"
-       t <- term
-       reservedOp "="
-       return (x,t)
+       return x
+     reservedOp ":"
+     t <- term
+     eqTermDeclSuffix x t <|> whereTermDeclSuffix x t
+
+eqTermDeclSuffix :: String -> Term -> Parsec String u TermDeclaration
+eqTermDeclSuffix x t =
+  do reservedOp "="
      m <- term
      reserved "end"
      return $ TermDeclaration x t m
 
-whereTermDecl :: Parsec String u TermDeclaration
-whereTermDecl =
-  do (x,t) <- try $ do
-       reserved "let"
-       x <- varName
-       reservedOp ":"
-       t <- term
-       reserved "where"
-       return (x,t)
+whereTermDeclSuffix :: String -> Term -> Parsec String u TermDeclaration
+whereTermDeclSuffix x t =
+  do reserved "where"
      optional (reservedOp "|")
      preclauses <- patternMatchClause x `sepBy1` reservedOp "|"
      reserved "end"
@@ -1130,11 +1212,7 @@ explWherePattern =
      return (Expl,p)
 
 rawImplWherePattern :: Parsec String u Pattern
-rawImplWherePattern =
-      assertionPattern
-  <|> parenPattern
-  <|> conPattern
-  <|> varPattern
+rawImplWherePattern = pattern
 
 implWherePattern :: Parsec String u (Plicity,Pattern)
 implWherePattern =
@@ -1148,10 +1226,9 @@ wherePattern =
 
 termDecl :: Parsec String u TermDeclaration
 termDecl =
-      letFamilyDecl
+      letDecl
+  <|> letFamilyDecl
   <|> letInstanceDecl
-  <|> eqTermDecl
-  <|> whereTermDecl
 
 alternative :: Parsec String u (String, ConSig)
 alternative =
@@ -1185,24 +1262,24 @@ alternativeArgs =
   do argss <- many alternativeArg
      return (concat argss)
 
-emptyTypeDecl :: Parsec String u TypeDeclaration
-emptyTypeDecl =
+normalTypeDecl :: Parsec String u TypeDeclaration
+normalTypeDecl =
   do (tycon,tyargs) <- try $ do
        reserved "data"
        tycon <- decName
        tyargs <- typeArgs
-       reserved "end"
        return (tycon,tyargs)
+     emptyTypeDeclSuffix tycon tyargs <|> nonEmptyTypeDeclSuffix tycon tyargs
+
+emptyTypeDeclSuffix :: String -> [DeclArg] -> Parsec String u TypeDeclaration
+emptyTypeDeclSuffix tycon tyargs =
+  do reserved "end"
      return $ TypeDeclaration tycon tyargs []
 
-nonEmptyTypeDecl :: Parsec String u TypeDeclaration
-nonEmptyTypeDecl =
-  do (tycon,tyargs) <- try $ do
-       reserved "data"
-       tycon <- decName
-       tyargs <- typeArgs
-       reserved "where"
-       return (tycon,tyargs)
+nonEmptyTypeDeclSuffix
+  :: String -> [DeclArg] -> Parsec String u TypeDeclaration
+nonEmptyTypeDeclSuffix tycon tyargs =
+  do reserved "where"
      optional (reservedOp "|")
      alts <- alternative `sepBy` reservedOp "|"
      reserved "end"
@@ -1260,8 +1337,7 @@ dataInstanceDecl =
 
 typeDecl :: Parsec String u TypeDeclaration
 typeDecl =
-      emptyTypeDecl
-  <|> nonEmptyTypeDecl
+      normalTypeDecl
   <|> dataFamilyDecl
   <|> dataInstanceDecl
 
@@ -1276,17 +1352,35 @@ resetDecl =
      reserved "end"
      return $ ResetDeclaration res a b
 
-statement :: Parsec String u Statement
-statement =
-     TmDecl <$> termDecl
- <|> TyDecl <$> typeDecl
- <|> ResetDecl <$> resetDecl
 
 
 
 
 
--- open settings
+
+-- * Open Settings
+
+-- | The 'openSettings' parser captures the grammar for module opening, as
+-- defined in
+--
+-- @
+--    <openSettings> ::= <decName> <oAs>? <oHidingUsing>? <oRenaming>?
+--    <oAs> ::= "as" <decName>
+--    <oHidingUsing> ::= <hiding> | <using>
+--    <hiding> ::= "hiding" "(" ((<varName> | <decName>) $ ",") ")"
+--    <using> ::= "using" "(" ((<varName> | <decName>) $ ",") ")"
+--    <oRenaming> ::= "renaming" "(" ((<varRen> | <decRen>) $ ",") ")"
+--    <varRen> ::= <varName> "to" <varName>
+--    <decRen> ::= <decName> "to" <decName>
+-- @
+
+openSettings :: Parsec String u OpenSettings
+openSettings =
+  OpenSettings
+    <$> decName
+    <*> oAs
+    <*> oHidingUsing
+    <*> oRenaming
 
 oAs :: Parsec String u (Maybe String)
 oAs =
@@ -1336,68 +1430,55 @@ oRenaming =
          n' <- decName
          return (n,n')
 
-openSettings :: Parsec String u OpenSettings
-openSettings =
-  OpenSettings
-    <$> decName
-    <*> oAs
-    <*> oHidingUsing
-    <*> oRenaming
 
 
 
 
--- modules
 
-modulOpen :: Parsec String u Module
-modulOpen =
-  do n <- try $ do
-       reserved "module"
-       n <- decName
-       reserved "opening"
-       return n
-     optional (reserved "|")
-     settings <- sepBy openSettings (reserved "|")
+-- * Modules
+
+-- | The parser 'modul' captures the grammar for modules defined as
+--
+-- @
+--    <module> ::= "module" <decName> ("opening" (<openSettings> $ "|"))?
+--                 "where" <statement>* "end"
+-- @
+
+modul :: Parsec String u Module
+modul =
+  do try $ reserved "module"
+     n <- decName
+     settings <- option [] $ do
+       try $ reserved "opening"
+       optional (reservedOp "|")
+       openSettings `sepBy` reservedOp "|"
      reserved "where"
      stmts <- many statement
      reserved "end"
      return $ Module n settings stmts
 
-modulNoOpen :: Parsec String u Module
-modulNoOpen =
-  do n <- try $ do
-       reserved "module"
-       n <- decName
-       reserved "where"
-       return n
-     stmts <- many statement
-     reserved "end"
-     return $ Module n [] stmts
-
-modul :: Parsec String u Module
-modul =
-      modulOpen
-  <|> modulNoOpen
 
 
 
 
+-- * Programs
 
--- programs
+-- | A 'program' is just many modules.
+--
+-- @
+--    <program> ::= <module>*
+-- @
 
 program :: Parsec String u Program
 program = Program <$> many modul
 
 
 
-parseProgram :: String -> Either String Program
-parseProgram str
-  = case parse (whiteSpace *> program <* eof) "Parse Error" str of
+
+
+parseProgram :: String -> String -> Either String Program
+parseProgram fn str
+  = case parse (whiteSpace *> program <* eof) fn str of
       Left err ->
-        let pos = errorPos err
-        in Left ("Parse error at line " ++ show (sourceLine pos) ++
-                   ", column " ++ show (sourceColumn pos) ++ ":\n" ++
-                     showErrorMessages "or" "unknown parse error"
-                            "expecting" "unexpected" "end of input"
-                            (errorMessages err))
+        Left (show err)
       Right p -> Right p
