@@ -26,6 +26,7 @@ import Golem.Core.Term
 import Golem.Unification.Elaborator
 import Golem.Unification.Unification ()
 
+import Control.Lens.Reified (ReifiedLens (Lens))
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -79,7 +80,11 @@ newtype ElaboratedTerm = ElaboratedTerm { elabTerm :: Term }
 
 unifyHelper :: NormalTerm -> NormalTerm -> TypeChecker ()
 unifyHelper (NormalTerm x) (NormalTerm y) =
-  unifyJ substitution context x y
+  catchError
+    (unifyJ substitution [Lens context, Lens holeContext] x y)
+    (\e ->
+      throwError $
+        "Could not unify " ++ pretty x ++ " with " ++ pretty y ++ ":\n" ++ e)
 
 
 -- | We can unalias a name. This corresponds to the judgment @L ∋ n alias n'@

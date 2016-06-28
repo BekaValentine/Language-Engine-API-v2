@@ -66,17 +66,18 @@ completeSubstitution subsl subs' =
 
 
 
--- | Given a way to get the context and a way to get the current substitution,
+-- | Given a way to get contexts and a way to get the current substitution,
 --  we can substitute into it with the current substitution.
 
-substituteContext :: (Eq a, Functor f, Foldable f, MonadState s m)
-                  => Lens' s (Substitution f)
-                  -> Lens' s [(a, ABT f)]
-                  -> m ()
-substituteContext subsl ctxl =
-  do ctx <- getElab ctxl
-     subs2 <- getElab subsl
-     putElab ctxl (map (\(x,t) -> (x,substMetas subs2 t)) ctx)
+substituteContexts :: (Eq a, Functor f, Foldable f, MonadState s m)
+                   => Lens' s (Substitution f)
+                   -> [ReifiedLens' s [(a, ABT f)]]
+                   -> m ()
+substituteContexts subsl ctxls =
+  forM_ ctxls $ \(Lens ctxl) ->
+    do ctx <- getElab ctxl
+       subs2 <- getElab subsl
+       putElab ctxl (map (\(x,t) -> (x,substMetas subs2 t)) ctx)
 
 
 
@@ -88,14 +89,15 @@ substituteContext subsl ctxl =
 -- instead of just a term. This is necessary for fancier type theories that
 -- have judgments other than @A true@.
 
-substituteContextJ :: (Eq a, Functor f, Foldable f, MonadState s m, Functor j)
-                   => Lens' s (Substitution f)
-                   -> Lens' s [(a, j (ABT f))]
-                   -> m ()
-substituteContextJ subsl ctxl =
-  do ctx <- getElab ctxl
-     subs2 <- getElab subsl
-     putElab ctxl (map (\(x,t) -> (x,fmap (substMetas subs2) t)) ctx)
+substituteContextsJ :: (Eq a, Functor f, Foldable f, MonadState s m, Functor j)
+                    => Lens' s (Substitution f)
+                    -> [ReifiedLens' s [(a, j (ABT f))]]
+                    -> m ()
+substituteContextsJ subsl ctxls =
+  forM_ ctxls $ \(Lens ctxl) ->
+    do ctx <- getElab ctxl
+       subs2 <- getElab subsl
+       putElab ctxl (map (\(x,t) -> (x,fmap (substMetas subs2) t)) ctx)
 
 
 
@@ -106,12 +108,12 @@ substituteContextJ subsl ctxl =
 
 updateSubstitution :: (Eq a, Functor f, Foldable f, MonadState s m)
                    => Lens' s (Substitution f)
-                   -> Lens' s [(a,ABT f)]
+                   -> [ReifiedLens' s [(a,ABT f)]]
                    -> Substitution f
                    -> m ()
-updateSubstitution subsl ctxl subs =
+updateSubstitution subsl ctxls subs =
   do completeSubstitution subsl subs
-     substituteContext subsl ctxl
+     substituteContexts subsl ctxls
 
 
 
@@ -125,12 +127,12 @@ updateSubstitutionJ :: ( Eq a, Functor f, Foldable f
                        , MonadState s m, Functor j
                        )
                      => Lens' s (Substitution f)
-                     -> Lens' s [(a,j (ABT f))]
+                     -> [ReifiedLens' s [(a,j (ABT f))]]
                      -> Substitution f
                      -> m ()
-updateSubstitutionJ subsl ctxl subs =
+updateSubstitutionJ subsl ctxls subs =
   do completeSubstitution subsl subs
-     substituteContextJ subsl ctxl
+     substituteContextsJ subsl ctxls
     
 
 
@@ -238,11 +240,11 @@ unify :: ( Eq a, Functor f, Foldable f, Pretty (ABT f)
          , MonadUnify f m, MonadError String m, MonadState s m
          )
       => Lens' s (Substitution f)
-      -> Lens' s [(a, ABT f)]
+      -> [ReifiedLens' s [(a, ABT f)]]
       -> ABT f -> ABT f -> m ()
-unify subsl ctxl l r =
+unify subsl ctxls l r =
   do newSubs <- solve [Equation l r]
-     updateSubstitution subsl ctxl newSubs
+     updateSubstitution subsl ctxls newSubs
 
 
 
@@ -257,8 +259,8 @@ unifyJ :: ( Eq a, Functor f, Foldable f, Pretty (ABT f)
           , MonadUnify f m, MonadError String m, MonadState s m, Functor j
           )
        => Lens' s (Substitution f)
-       -> Lens' s [(a, j (ABT f))]
+       -> [ReifiedLens' s [(a, j (ABT f))]]
        -> ABT f -> ABT f -> m ()
-unifyJ subsl ctxl l r =
+unifyJ subsl ctxls l r =
   do newSubs <- solve [Equation l r]
-     updateSubstitutionJ subsl ctxl newSubs
+     updateSubstitutionJ subsl ctxls newSubs
