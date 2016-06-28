@@ -302,7 +302,7 @@ compose resources t =
 solve :: [((String,String),Term)] -> [(Term,Term)] -> Term -> [Term]
 solve defs resources0 m =
   let (m', problems) = removeRequires m
-  in case evalTerm defs m' of
+  in case evalTermAtLevel defs m' 1 of
        Nothing -> []
        Just em -> case sortProblems problems of
          Nothing -> []

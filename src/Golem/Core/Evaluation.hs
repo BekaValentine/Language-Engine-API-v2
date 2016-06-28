@@ -289,3 +289,13 @@ evalTerm defs m =
   case runReaderT (paramEval (0 :: Int) m) defs of
     Left _ -> Nothing
     Right em -> Just em
+
+
+
+
+
+evalTermAtLevel :: [((String,String),Term)] -> Term -> Int -> Maybe Term
+evalTermAtLevel defs m l =
+  case runReaderT (paramEval l m) defs of
+    Left _ -> Nothing
+    Right em -> Just em
