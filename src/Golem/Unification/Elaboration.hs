@@ -134,7 +134,7 @@ elabTermDecl (TermDeclaration n ty0 def0) =
   do let ty = freeToDefined (In . Defined . BareLocal) ty0
          def = freeToDefined (In . Defined . BareLocal) def0
      m <- getElab moduleName
-     when' (typeInDefinitions (Absolute m n))
+     when' (typeInDefinitions (BareLocal n))
          $ throwError ("Term already defined: " ++ n)
      addAlias n
      elty <- check ty (NormalTerm (In Type))
@@ -227,8 +227,8 @@ elabTermDecl (WhereDeclaration n ty preclauses) =
       error "This case of 'truePatterns' should never have been reached."
 elabTermDecl (LetFamilyDeclaration n args ty0) =
   do m <- getElab moduleName
-     when' (typeInDefinitions (Absolute m n))
        $ throwError ("Term already defined: " ++ n)
+     when' (typeInDefinitions (BareLocal n))
      let plics = [ plic | DeclArg plic _ _ <- args ]
          ty = freeToDefined (In . Defined . BareLocal)
                 $ helperFold (\(DeclArg plic x t) -> funH plic x t) args ty0
@@ -337,8 +337,8 @@ elabAlt tycon c consig0
   = do let consig = freeToDefinedConSig consig0
        validConSig (BareLocal tycon) (BareLocal c) consig
        m <- getElab moduleName
-       when' (typeInSignature (Absolute m c))
            $ throwError ("Constructor already declared: " ++ c)
+       when' (typeInSignature (BareLocal c))
        addAlias c
        consig' <- checkifyConSig consig
        addConstructor (m,c) consig'
@@ -408,8 +408,8 @@ elabTypeDecl :: TypeDeclaration -> Elaborator ()
 elabTypeDecl (TypeDeclaration tycon tyconargs alts)
   = do let tyconSig = freeToDefinedConSig (conSigH tyconargs (In Type))
        m <- getElab moduleName
-       when' (typeInSignature (Absolute m tycon))
            $ throwError ("Type constructor already declared: " ++ tycon)
+       when' (typeInSignature (BareLocal tycon))
        addAlias tycon
        tyconSig' <- checkifyConSig tyconSig
        addConstructor (m,tycon) tyconSig'
