@@ -8,6 +8,152 @@ function subset(xs,ys) {
   });
 }
 
+
+function groupN(xs, n) {
+  let groups = [];
+  
+  for (var i = 0; i < xs.length; i += n) {
+    groups.push(xs.slice(i,i+n));
+  }
+  
+  return groups;
+}
+    
+function showFact(fact) {
+  let p = fact.contents[0];
+  let args = fact.contents.slice(1);
+  
+  return p + "(" + args.map(x => x.toString()).join(",") + ")";
+}
+    
+function showFacts(facts) {
+  return "\n  " +
+         groupN(facts.reverse(), 5).
+           map(group => group.map(showFact).join(", ")).
+           join("\n  ");
+}
+    
+function showREPLChange(change) {
+  let factsResponse = showFacts(change.facts);
+  let worldModelResponse = showFacts(change.worldModel.facts);
+  
+  return "response facts:" + factsResponse + "\n\nnew world model:" + worldModelResponse;
+}
+    
+function showREPLError(err) {
+  if ("MiscError" === err.tag) {
+    
+    return "Could not interpret input."
+    
+  } else if ("UnknownWord" === err.tag) {
+    
+    return "unknown word: " + err.replWord;
+    
+  } else if ("IncompleteParse" === err.tag) {
+    
+    let response = "incomplete parse:";
+    
+    err.replChart.
+      sort((x,y) => x.length > y.length).
+      forEach(function (bracketted) {
+        response += "\n\n ";
+        bracketted.forEach(function (sequence) {
+          response += " [" + sequence.sequenceLabel.substring(4) +
+                      " " + sequence.sequenceWords + "]";
+        });
+      });
+    
+    return response;
+    
+  }
+}
+    
+function showREPLResponse(data) {
+  if ("REPLConversationChange" === data.tag) {
+    console.log(data.replChange);
+    return data.replChange; //showREPLChange(data.replChange);
+  } else if ("REPLConversationError" === data.tag) {
+    return showREPLError(data.replError);
+  }
+}
+
+function showGraphQLField(field) {
+  var shownF = "";
+  
+  var f;
+  
+  if ("id" === field.fieldName.contents) {
+    f = "id";
+  } else {
+    if ("Forward" === field.fieldName.tag) {
+      f = "fwd_" + field.fieldName.contents;
+    } else if ("Backward" === field.fieldName.tag) {
+      f = "bwd_" + field.fieldName.contents;
+    }
+  }
+  
+  shownF += f;
+  
+  var params = [];
+  
+  if (field.fieldID) {
+    params.push("id = " + field.fieldID);
+  }
+  
+  if (field.fieldIsA) {
+    params.push("isA = " + field.fieldIsA);
+  }
+  
+  if (0 !== params.length) {
+    shownF += "(" + params.join(", ") + ")";
+  }
+  
+  if (field.fieldSubquery) {
+    shownF += " " + showSimpleGraphQLQuery(field.fieldSubquery);
+  }
+  
+  return shownF;
+}
+
+function showSimpleGraphQLQuery(fields) {
+  return "{ " + fields.map(f => showGraphQLField(f)).join(", ") + " }";
+}
+
+function showQuantifiedGraphQLQuery(query) {
+  return query.quantifier + "[" + query.scopeVar + "](" +
+           showGraphQLQuery(query.restrictorQuery) + ", " +
+           showGraphQLQuery(query.scopeQuery) + ")";
+}
+
+function showMixedGraphQLQuery(query) {
+  
+}
+
+function showGraphQLQuery(query) {
+  console.log("showing ",query);
+  if ("Simple" === query.tag) {
+    return showSimpleGraphQLQuery(query.contents);
+  } else if ("Quantified" === query.tag) {
+    return showQuantifiedGraphQLQuery(query.contents);
+  }
+  
+  const fn = {
+    Simple: showSimpleGraphQLQuery,
+    Quantified
+  }
+  
+  return fn[query.tag](query.contents)
+  
+  
+  x.match(
+    "Simple", f,
+    "Quantifiction", g
+  );
+}
+
+
+
+
 angular.module('leApp').
   controller('AppsIDController', ['$scope', '$route', '$location', 'apiService',
   function ($scope, $route, $location, apiService) {
@@ -174,72 +320,7 @@ angular.module('leApp').
       output: ""
     };
     
-    let groupN = function (xs, n) {
-      let groups = [];
-      
-      for (var i = 0; i < xs.length; i += n) {
-        groups.push(xs.slice(i,i+n+1));
-      }
-      
-      return groups;
-    };
     
-    let showFact = function (fact) {
-      let p = fact.contents[0];
-      let args = fact.contents.slice(1);
-      
-      return p + "(" + args.map(x => x.toString()).join(",") + ")";
-    };
-    
-    let showFacts = function (facts) {
-      return "\n  " +
-             groupN(facts.reverse(), 5).
-               map(group => group.map(showFact).join(", ")).
-               join("\n  ");
-    };
-    
-    let showREPLChange = function (change) {
-      let factsResponse = showFacts(change.facts);
-      let worldModelResponse = showFacts(change.worldModel.facts);
-      
-      return "response facts:" + factsResponse + "\n\nnew world model:" + worldModelResponse;
-    };
-    
-    let showREPLError = function (err) {
-      if ("MiscError" === err.tag) {
-        
-        return "could not interpret input."
-        
-      } else if ("UnknownWord" === err.tag) {
-        
-        return "unknown word: " + err.replWord;
-        
-      } else if ("IncompleteParse" === err.tag) {
-        
-        let response = "incomplete parse:";
-        
-        err.replChart.
-          sort((x,y) => x.length > y.length).
-          forEach(function (bracketted) {
-            response += "\n\n ";
-            bracketted.forEach(function (sequence) {
-              response += " [" + sequence.sequenceLabel.substring(4) +
-                          " " + sequence.sequenceWords + "]";
-            });
-          });
-        
-        return response;
-        
-      }
-    };
-    
-    let showREPLResponse = function (data) {
-      if ("REPLConversationChange" === data.tag) {
-        return showREPLChange(data.replChange);
-      } else if ("REPLConversationError" === data.tag) {
-        return showREPLError(data.replError);
-      }
-    };
     
     let performSendREPL = function () {
       let input = $scope.replInfo.input;
