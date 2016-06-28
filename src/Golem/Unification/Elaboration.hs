@@ -27,7 +27,8 @@ import Golem.Unification.TypeChecking
 
 import Control.Monad
 import Control.Monad.Except
-import Data.List (inits,nub,(\\),groupBy,sort,intersect,partition)
+import Data.List (inits,nub,partition)
+import Data.Maybe (fromJust)
 
 
 
@@ -584,75 +585,80 @@ openAsIsValid (Just m')
          $ throwError $ "The module name " ++ m' ++ " is already in use."
 
 
+-- | We can get the names of a module.
+
+namesInModule :: String -> Elaborator [String]
+namesInModule m =
+  do defs <- getElab definitions
+     sig <- getElab signature
+     return $
+       nub $ [ n | ((m',n),(_,_)) <- defs, m' == m ]
+          ++ [ n | ((m',n),_) <- sig, m' == m ]
+
+
 -- | We can ensure that the hiding-using settings are valid  by checking that
 -- all of the relevant names exist in the module in question.
 
-hidingUsingIsValid :: String -> Maybe HidingUsing -> Elaborator ()
-hidingUsingIsValid _ Nothing = return ()
-hidingUsingIsValid m (Just hu')
-  = do defs <- getElab definitions
-       sig <- getElab signature
-       let ns = nub $ case hu' of
-                  Hiding ns' -> ns'
-                  Using ns' -> ns'
-           known = nub $ [ n | ((_,n),(_,_)) <- defs ]
-                      ++ [ n | ((_,n),_) <- sig ]
-           missing = ns \\ known
-       unless (null missing)
+hidingUsingIsValid :: String -> Maybe HidingUsing -> Elaborator [String]
+hidingUsingIsValid m Nothing =
+  namesInModule m
+hidingUsingIsValid m (Just (Hiding h)) =
+  do known <- namesInModule m
+     let missing = [ n | n <- h, not (n `elem` known) ]
+     unless (null missing)
          $ throwError $ "The module " ++ m
                      ++ " does not declare these symbols: "
                      ++ unwords missing
-
-
--- | We can ensure that the renaming settings are valid by checking that all
--- of the renamed symbols actually exist, and that the new names don't
--- conflict with other names that have been opened.
-
-renamingIsValid :: String
-                -> Maybe String
-                -> Maybe HidingUsing
-                -> [(String,String)]
-                -> Elaborator ()
-renamingIsValid m a hu r
-  = do defs <- getElab definitions
-       sig <- getElab signature
-       let ns = nub [ n | (n,_) <- r ]
-           known = nub $ [ n | ((m',n),(_,_)) <- defs, m' == m ]
-                      ++ [ n | ((m',n),_) <- sig, m' == m ]
-           missing = ns \\ known
-       unless (null missing)
+     return [ n | n <- known, not (n `elem` h) ]
+hidingUsingIsValid m (Just (Using u)) =
+  do known <- namesInModule m
+     let missing = [ n | n <- u, not (n `elem` known) ]
+     unless (null missing)
          $ throwError $ "The module " ++ m
                      ++ " does not declare these symbols: "
-                     ++ unwords ns
-       let knownBeingUsed = case hu of
-                              Nothing -> known
-                              Just (Using used) -> used
-                              Just (Hiding hidden) -> known \\ hidden
-           missingUsed = ns \\ knownBeingUsed
-       unless (null missingUsed)
-         $ throwError $ "The following symbols are not being opened: "
-                        ++ unwords missingUsed
-       let ns' = [ n' | (_,n') <- r ]
-           preserved = known \\ ns
-           overlappingNames =
-             [ x | x:xs <- groupBy (==) (sort (ns' ++ preserved))
-                 , length xs /= 0
-                 ]
-       unless (null overlappingNames)
-         $ throwError $ "These symbols will be overlapping when the module "
-                     ++ m ++ " is opened: " ++ unwords overlappingNames
-       als <- getElab aliases
-       let combine = case a of
-                       Nothing -> Left
-                       Just m' -> \n' -> Right (m',n')
-           mns' = nub [ combine n' | (_,n') <- r ]
-           knownAls = nub [ al | (al,_) <- als ]
-           overlap = intersect mns' knownAls
-           showLR (Left n0) = n0
-           showLR (Right (m0,n0)) = m0 ++ "." ++ n0
-       unless (null overlap)
-         $ throwError $ "These symbols are already in scope: "
-                     ++ unwords (map showLR overlap)
+                     ++ unwords missing
+     return [ n | n <- known, n `elem` u ]
+
+
+-- | We can make the full renaming map by adding to the renaming all of the
+-- names that don't actually change.
+
+fullRenamingMap
+  :: [String] -> [(String,String)] -> Elaborator [(String,String)]
+fullRenamingMap opened r =
+  do let oldR = map fst r
+     case [ n | n <- oldR, not (n `elem` opened) ] of
+       [] ->
+         return
+           [ case lookup n r of
+               Nothing -> (n,n)
+               Just n' -> (n,n')
+           | n <- opened
+           ]
+       missing ->
+         throwError $
+           "The follow names cannot be renamed because they have not been"
+           ++ "opened: " ++ unwords missing
+
+
+-- | We can check that the new names are valid by either checking that they're
+-- being opened in a qualified module, or by checking that none of the new
+-- names conflict with previously opened names.
+
+newNamesAreValid
+  :: String -> Maybe String -> [(String,String)] -> Elaborator ()
+newNamesAreValid _ (Just _) _ =
+  return ()
+newNamesAreValid m Nothing r =
+  do als <- getElab aliases
+     let newR = map snd r
+         aliased = map fst als
+     case [ n | n <- newR, Left n `elem` aliased ] of
+       [] -> return ()
+       overlap ->
+         throwError $
+           "These symbols will be overlapping when the module "
+             ++ m ++ " is opened: " ++ unwords overlap
 
 
 -- | We can ensure that open settings are valid by ensuring the module to open
@@ -664,8 +670,9 @@ ensureOpenSettingsAreValid oss
   = forM_ oss $ \(OpenSettings m a hu r) -> do
       ensureModuleExists m
       openAsIsValid a
-      hidingUsingIsValid m hu
-      renamingIsValid m a hu r
+      opened <- hidingUsingIsValid m hu
+      fullRenaming <- fullRenamingMap opened r
+      newNamesAreValid m a fullRenaming
 
 
 -- | We can compute new aliases from open settings.
@@ -809,7 +816,9 @@ elabModule (Module m settings stmts0)
 -- dependencies.
 
 sortModules :: [Module] -> Elaborator [Module]
-sortModules mods0 = go [] mods0
+sortModules mods0 =
+  do curMods <- getElab moduleNames
+     go curMods mods0
   where
     splitModules :: [String] -> [Module] -> Elaborator ([Module], [Module])
     splitModules prev mods
@@ -822,18 +831,23 @@ sortModules mods0 = go [] mods0
     
     diagnoseResolutionError :: [Module] -> Elaborator ([Module], [Module])
     diagnoseResolutionError rest =
-      let (mnames, onamess) = unzip [ (mname, map openModule oss) | Module mname oss _ <- rest ]
+      let (mnames, onamess) =
+            unzip [ (mname, map openModule oss)
+                  | Module mname oss _ <- rest
+                  ]
           onames = nub (concat onamess)
-          missing = onames \\ mnames
+          missing = filter (\x -> not (x `elem` mnames)) onames
       in if null missing
          then
            throwError $
              "The following modules have circular dependencies which " ++
              "prevent resolution: " ++ unwords [ n | Module n _ _ <- rest ]
-         else
+         else do
+           curMods <- getElab moduleNames
            throwError $
              "The following modules are opened but do not exist: " ++
-             unwords missing
+             unwords missing ++ ". Current modules are: " ++
+             unwords curMods
     
     go :: [String] -> [Module] -> Elaborator [Module]
     go _ []
