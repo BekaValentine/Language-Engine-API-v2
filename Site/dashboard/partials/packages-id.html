@@ -49,6 +49,21 @@
         <p ng-show="packageEditing.hasError">Error: {{packageEditing.error}}</p>
     </p>
     
+    <p>
+        <em>Needs Build</em>
+        {{packageInfo.packageNeedsBuild}}
+        <input type="button"
+               value="Build"
+               ng-click="buildPackage()"
+               ng-show="packageInfo.packageIsOwn">
+        <span ng-show="buildInfo.waiting">
+            Building... Please wait...
+        </span>
+        <span ng-show="buildInfo.hasError">
+            {{buildInfo.error}}
+        </span>
+    </p>
+    
     <div>
         <p><em>Your package</em> {{packageInfo.packageIsOwn}}</p>
         <p><em>Package ID</em> {{packageInfo.packageID}}</p>    
