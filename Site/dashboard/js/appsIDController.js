@@ -279,15 +279,15 @@ angular.module('leApp').
         });
     };
     $scope.savePackageChanges = function () {
-      var newPackages = $scope.appPackagesEditing.candidatePackages.filter(function (info) {
+      let newPackages = $scope.appPackagesEditing.candidatePackages.filter(function (info) {
         return info.isUsed && !info.packageIsPreludeSummary;
       });
       
-      var newPackageIDs = newPackages.map(function (info) {
+      let newPackageIDs = newPackages.map(function (info) {
         return info.packageIDSummary;
       });
       
-      var needsUpdate =
+      let needsUpdate =
         !subset(newPackageIDs, $scope.appPackagesEditing.packages) ||
         !subset($scope.appPackagesEditing.packages, newPackageIDs);
       
