@@ -24,8 +24,6 @@ import Golem.Utils.Env
 import Golem.Utils.Names
 import Golem.Utils.Pretty
 
-import Debug
-
 
 
 
@@ -54,10 +52,10 @@ processInput :: ProcessingInfo
              -> String
              -> Either (Maybe (ParseError String String)) (WorldModel, [Fact])
 processInput pinfo str =
-  case debugSeq "P" $ parse grammr lexr str of
-    Left err -> debugSeq "A" $
+  case parse grammr lexr str of
+    Left err ->
       Left (Just (prettyParseError pretty pretty err))
-    Right parses -> debugSeq "B" $
+    Right parses ->
       case solutions parses of
         [sem] ->
           case makeTrue (worldModel pinfo) sem of
