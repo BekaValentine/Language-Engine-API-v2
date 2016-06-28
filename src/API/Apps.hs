@@ -118,6 +118,7 @@ data PackageSummary
     , packageUsesPreludeSummary :: Bool
     , packageIsPreludeSummary :: Bool
     , packageIsPublicSummary :: Bool
+    , packageModuleNamesSummary :: [String]
     }
   deriving (Generic)
 
@@ -215,7 +216,7 @@ instance FromJSON ConversationUpdateInfo
 
 data ConversationChange
   = ConversationChange
-    { change :: Maybe WMFacts
+    { change :: Maybe String --Maybe WMFacts
     }
   deriving (Generic)
 
@@ -249,7 +250,7 @@ instance ToJSON REPLConversationError
 
 data REPLConversationChange
   = REPLConversationChange
-    { replChange :: Maybe WMFacts
+    { replChange :: Maybe String --Maybe WMFacts
     }
   | REPLConversationError
     { replError :: REPLConversationError
@@ -530,12 +531,12 @@ apps_id_get conn aid auth =
             conn
             "SELECT name, description, packages FROM apps WHERE id = ?"
             (DB.Only aid)
-     foundPkgs :: [(PackageID,String,String,Bool,Bool,Bool)]
+     foundPkgs :: [(PackageID,String,String,Bool,Bool,Bool,DB.PGArray String)]
        <- liftIO $ DB.query
             conn
             " SELECT                                 \
             \   id, name, description, uses_prelude, \
-            \   is_prelude, is_public                \
+            \   is_prelude, is_public, module_names  \
             \ FROM packages                          \
             \ WHERE id IN ?                          "
             (DB.Only (DB.In (DB.fromPGArray pkgs)))
@@ -568,8 +569,9 @@ apps_id_get conn aid auth =
                   , packageUsesPreludeSummary = up
                   , packageIsPreludeSummary = isp
                   , packageIsPublicSummary = ispub
+                  , packageModuleNamesSummary = modNames
                   }
-                | (pid,pnme,pdesc,up,isp,ispub) <- foundPkgs
+                | (pid,pnme,pdesc,up,isp,ispub,DB.PGArray modNames) <- foundPkgs
                 ]
             , parseErrorSummaries =
                 [ case B.decode err :: C.ParseError String String of
@@ -604,11 +606,13 @@ apps_id_put :: DB.Connection
                          :> Put '[JSON] ())
 apps_id_put conn aid auth update =
   do ensureUserAuthorized conn aid (Auth.userID auth)
-     liftIO $ DB.withTransaction conn $ do
+     mer <- liftIO $ DB.withTransaction conn $ do
        updateName (appNameUpdate update)
        updateDescription (appDescriptionUpdate update)
        updatePackages (appPackagesUpdate update)
-     return ()
+     case mer of
+       Nothing -> return ()
+       Just err -> throwError err
   where
     updateName :: Maybe String -> IO ()
     updateName = mapM_ $ \nme ->
@@ -626,20 +630,35 @@ apps_id_put conn aid auth update =
                 (desc,aid)
          return ()
     
-    updatePackages :: Maybe [PackageID] -> IO ()
-    updatePackages = mapM_ $ \pids ->
-      do _ <- DB.execute
+    updatePackages :: Maybe [PackageID] -> IO (Maybe ServantErr)
+    updatePackages Nothing = return Nothing
+    updatePackages (Just pids) =
+      do moduleNames :: [(PackageID,DB.PGArray String)]
+           <- DB.query
                 conn
-                " UPDATE apps                  \
-                \ SET packages = ARRAY (       \
-                \       SELECT id              \
-                \       FROM packages          \
-                \       WHERE id = ANY (?)     \
-                \       AND is_prelude = false \
-                \     )                        \
-                \ WHERE id = ?                 "
-                (DB.PGArray pids, aid)
-         return ()
+                " SELECT id,module_names \
+                \ FROM packages          \
+                \ WHERE id IN ?          "
+                (DB.Only (DB.In pids))
+         let overlappingModuleNames =
+               flip any moduleNames (\(pid, DB.PGArray mn) ->
+                 flip any moduleNames (\(pid', DB.PGArray mn') ->
+                   pid /= pid' && any (`elem` mn) mn'))
+         if overlappingModuleNames
+         then return $ Just (err412 { errReasonPhrase = "Overlapping Module Names" })
+         else do
+           _ <- DB.execute
+                  conn
+                  " UPDATE apps                  \
+                  \ SET packages = ARRAY (       \
+                  \       SELECT id              \
+                  \       FROM packages          \
+                  \       WHERE id = ANY (?)     \
+                  \       AND is_prelude = false \
+                  \     )                        \
+                  \ WHERE id = ?                 "
+                  (DB.PGArray pids, aid)
+           return Nothing
 
 
 
@@ -788,7 +807,7 @@ apps_id_conversations_id_put conn aid cid (ConversationUpdate tok info) =
          buildProducts :: [DB.Only ByteString]
            <- liftIO $ DB.query
                 conn
-                " SELECT packages.build_product         \
+                " SELECT packages.build_extract         \
                 \ FROM packages, apps                   \
                 \ WHERE                                 \
                 \   ( packages.id = ANY (apps.packages) \
@@ -818,7 +837,9 @@ apps_id_conversations_id_put conn aid cid (ConversationUpdate tok info) =
              Just parseErr ->
                do logParseError mve parseErr
                   throwError err412
-           Right (newWm,fcts) ->
+           Right sem -> return (ConversationChange (Just sem))
+             {-
+             (newWm,_,fcts) ->
              do _ <- liftIO $ DB.execute
                        conn
                        "UPDATE conversations SET binary_rep = ? WHERE id = ?"
@@ -826,6 +847,7 @@ apps_id_conversations_id_put conn aid cid (ConversationUpdate tok info) =
                 return ConversationChange
                        { change = Just (WMFacts newWm fcts)
                        }
+              -}
     
     logParseError :: String
                   -> C.ParseError String String
@@ -971,7 +993,7 @@ apps_id_repl_conversations_id_put conn aid cid auth info =
          buildProducts :: [DB.Only ByteString]
            <- liftIO $ DB.query
                 conn
-                " SELECT packages.build_product         \
+                " SELECT packages.build_extract         \
                 \ FROM packages, apps                   \
                 \ WHERE                                 \
                 \   ( packages.id = ANY (apps.packages) \
@@ -1005,7 +1027,10 @@ apps_id_repl_conversations_id_put conn aid cid auth info =
                return $
                  REPLConversationError
                    (IncompleteParse (C.chartToBracketedSequences c))
-           Right (newWm,fcts) ->
+           Right sem ->
+             return (REPLConversationChange (Just sem))
+             {-
+             (newWm,semStr,fcts) ->
              do _ <- liftIO $ DB.execute
                        conn
                        " UPDATE repl_conversations \
@@ -1013,5 +1038,6 @@ apps_id_repl_conversations_id_put conn aid cid auth info =
                        \ WHERE id = ?              "
                        (DB.Binary (B.encode newWm), cid)
                 return REPLConversationChange
-                       { replChange = Just (WMFacts newWm fcts)
+                       { replChange = Just semStr --(WMFacts newWm fcts)
                        }
+              -}
