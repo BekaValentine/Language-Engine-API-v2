@@ -75,6 +75,7 @@ processInput pinfo str =
       Just (In (Quote msc)) <- return (evalTermAtLevel (environment pinfo) sem 0)
       let m = instantiate0 msc
           decontm = decontinuize m
-      solvedm <- solve (environment pinfo) discourseContext decontm
+      Just normm <- return (evalTermAtLevel (environment pinfo) decontm 0)
+      solvedm <- solve (environment pinfo) discourseContext normm
       Just finsem <- return (evalTerm (environment pinfo) solvedm)
       return finsem
