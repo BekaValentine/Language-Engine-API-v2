@@ -128,7 +128,7 @@ angular.module('leApp').
     };
     
     $scope.deletePackage = function () {
-      if (confirm("Delete this packge?")) {
+      if (confirm("Delete this package?")) {
         apiService.packages.id.destroy($scope.packageInfo.packageID).
           success(function () {
             $location.path('/packages');
@@ -197,7 +197,7 @@ angular.module('leApp').
       var shouldView = true;
       
       if ($scope.fileInfo.fileSelected && $scope.fileChanged()) {
-        shouldView = confirm("The current file has not been saved. Do you wan't to switch files anyway?")
+        shouldView = confirm("The current file has not been saved. Do you want to switch files anyway?")
       }
       
       if (shouldView) {
