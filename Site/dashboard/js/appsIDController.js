@@ -292,15 +292,39 @@ angular.module('leApp').
         !subset($scope.appPackagesEditing.packages, newPackageIDs);
       
       if (needsUpdate) {
-        apiService.apps.id.updatePackages($scope.appInfo.appID, newPackageIDs).
-          success(function () {
-            $scope.appInfo.packageSummaries = newPackages;
-            $scope.appPackagesEditing.editing = false;
-          }).
-          error(function (response) {
-            $scope.appPackagesEditing.hasError = true;
-            $scope.appPackagesEditing.error = response.statusText;
+        var overlap1;
+        var overlap2;
+        let overlappingModuleNames = newPackages.some(function (p) {
+          return newPackages.some(function (p2) {
+            return p.packageIDSummary !== p2.packageIDSummary &&
+                   p.packageModuleNamesSummary.some(function (mn) {
+                     overlap1 = p;
+                     overlap2 = p2;
+                     return p2.packageModuleNamesSummary.includes(mn);
+                   });
           });
+        });
+        
+        if (overlappingModuleNames) {
+          
+          $scope.appPackagesEditing.hasError = true;
+          $scope.appPackagesEditing.error =
+            "The packages " + overlap1.packageNameSummary + " and " +
+            overlap2.packageNameSummary + " cannot be used together " +
+            " because they have some module names in common.";
+          
+        } else {
+          apiService.apps.id.updatePackages($scope.appInfo.appID, newPackageIDs).
+            success(function () {
+              $scope.appInfo.packageSummaries = newPackages;
+              $scope.appPackagesEditing.editing = false;
+              $scope.appPackagesEditing.hasError = false;
+            }).
+            error(function (response) {
+              $scope.appPackagesEditing.hasError = true;
+              $scope.appPackagesEditing.error = response.statusText;
+            });
+        }
       } else {
         $scope.appPackagesEditing.editing = false;
       }
