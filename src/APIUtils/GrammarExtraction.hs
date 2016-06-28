@@ -1,5 +1,6 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ViewPatterns #-}
 
 
 
@@ -22,15 +23,19 @@ import Golem.Utils.Plicity
 import Golem.Utils.Pretty
 import Golem.Utils.Unifier
 import Golem.Utils.Vars
+import Golem.Core.Evaluation
 import Golem.Core.Parser
+import Golem.Core.Program (Program (Program))
 import Golem.Core.Term
 import Golem.Unification.Elaborator
 import Golem.Unification.Unification ()
 
 import Control.Applicative
+import Control.Lens.Reified (ReifiedLens (Lens))
 import Control.Monad.State
 import Data.Binary
 import Data.List
+import Data.Maybe (fromJust)
 import GHC.Generics
 
 
@@ -50,6 +55,9 @@ data LEWord
   deriving (Generic)
 
 instance Binary LEWord
+
+instance Show LEWord where
+  show (LEWord fm c m) = fm ++ " = " ++ pretty m ++ " : " ++ pretty c
 
 
 
@@ -146,12 +154,13 @@ isRuleType _ = False
 -- | We can filter a set of definitions to have only those that define either
 -- words or rules, separated out as such.
 
-filterWordsAndRules :: Definitions -> ([LEWord],[LERule])
-filterWordsAndRules = foldl f ([],[])
+filterWordsAndRules
+  :: Env (String,String) Term -> Definitions -> ([LEWord],[LERule])
+filterWordsAndRules env defs = foldl f ([],[]) defs
   where
     f (wds,rls) (_,(m,t))
-      | isWordType t = (convertWord m:wds, rls)
-      | isRuleType t = (wds, convertRule m:rls)
+      | isWordType t = (convertWord (fromJust (evalTerm env m)):wds, rls)
+      | isRuleType t = (wds, convertRule (fromJust (evalTerm env m)):rls)
       | otherwise    = (wds, rls)
 
 
@@ -167,9 +176,9 @@ convertWordsToLexer wds fm0
     -- if fm0 is "foo" then it means `"foo" and has cat LE.STRING
     [(quoteH (mkStrH fm0), In (Con (Absolute "LE" "STRING") []))]
   | otherwise =
-    do LEWord fm cat sem <- wds
+    do LEWord fm c sem <- wds
        guard (fm == fm0)
-       return (sem,cat)
+       return (sem,c)
   where
     isString ('\"':_) = True
     isString _        = False
@@ -183,52 +192,138 @@ convertWordsToLexer wds fm0
 convertLERuleToChartedRule :: LERule -> Rule Term Term
 convertLERuleToChartedRule (LERule rty rsem) =
   goQRule
-    (ElabState [] [] [] [] (MetaVar 0) [] "" [] [] [] 0 [] [] [])
+    (ElabState [] [] [] [] (MetaVar 0) [] "" [] [] [] 0 [] [] [] [] [])
     []
     rty
   where
     goQRule :: ElabState -> [Term] -> Term -> Rule Term Term
-    goQRule elabState impl (In (Con (Absolute "LE" "QRForall") [_,(_,sc)])) =
-      let Right (m,elabState') =
+    goQRule elabState impl
+      (In (Con (Absolute "LE" "QRForall") [_,(_,fsc)])) =
+      let In (Lam _ sc) = instantiate0 fsc
+          Right (m,elabState') =
             runStateT (nextElab nextMeta) elabState
           x = Var (Meta m)
       in goQRule elabState' (impl ++ [x]) (instantiate sc [x])
     goQRule elabState impl (In (Con (Absolute "LE" "QRDone") [(_,sc)])) =
-      goRule elabState impl [] (instantiate0 sc)
+      goRule elabState [] impl [] (instantiate0 sc)
     goQRule _ _ _ =
       error "The function goQRule was given a non-QRule term."
     
-    goRule :: ElabState -> [Term] -> [Term] -> Term -> Rule Term Term
-    goRule elabState impl expl (In (Con (Absolute "LE" "RDone") [(_,sc)])) =
-      if _nextMeta elabState == MetaVar (length (_substitution elabState))
-      then let returnCat = substMetas (_substitution elabState) (instantiate0 sc)
+    qcatToCat :: ElabState
+              -> [(MetaVar,Scope TermF)]
+              -> [Term]
+              -> Term
+              -> (ElabState,[(MetaVar,Scope TermF)],[Term],Term)
+    qcatToCat elabState
+              metas
+              impls
+              (In (Con (Absolute "LE" "QCDone") [(_,catsc)])) =
+      (elabState,metas,impls,instantiate0 catsc)
+    qcatToCat elabState
+              metas
+              impls
+              (In (Con (Absolute "LE" "QCForall")
+                       [(_,asc),(_,psc)])) =
+      let In (Lam _ sc) = instantiate0 psc
+          Right (m,elabState') =
+            runStateT (nextElab nextMeta) elabState
+          x = Var (Meta m)
+      in qcatToCat elabState' ((m,asc):metas) (impls ++ [x]) (instantiate sc [x])
+    qcatToCat _ _ _ t =
+      error $ "The function instantiateQForalls was given a non-QCategory: "
+              ++ pretty t
+    
+    -- catToQcat :: ElabState -> [MetaVar] -> Term -> Term
+    
+    goRule :: ElabState
+           -> [(MetaVar,Scope TermF)] -- metavars from qcatToCat
+           -> [Term]
+           -> [Term]
+           -> Term
+           -> Rule Term Term
+    goRule elabState
+           metas
+           impl
+           expl
+           (In (Con (Absolute "LE" "RDone") [(_,sc)])) =
+      let metasToReabstract =
+            [ (m,asc)
+            | (m,asc) <- metas
+            , maybe True (const False) (lookup m (_substitution elabState))
+            ]
+          freeVarsToSubstitute =
+            [ "x" ++ show n
+            | n <- [0 .. length metasToReabstract - 1]
+            ]
+          metasAndFrees = zip metasToReabstract freeVarsToSubstitute
+          metaSubstitutions =
+            [ (m, Var (Free (FreeVar x))) | ((m,_),x) <- metasAndFrees ]
+      in if _nextMeta elabState
+              == MetaVar (length metasToReabstract
+                            + length (_substitution elabState))
+         then
+           let returnCatToReabstract =
+                 substMetas (_substitution elabState) (instantiate0 sc)
                appliedToImpl = foldl' (appH Impl) rsem impl
                appliedToExpl = foldl' (appH Expl) appliedToImpl expl
-               returnTerm = substMetas (_substitution elabState) appliedToExpl
+               returnTermToReabstract =
+                 substMetas (_substitution elabState) appliedToExpl
+               returnCat =
+                 foldr
+                   (\(x,asc) c ->
+                     In (Con (Absolute "LE" "QCForall")
+                             [ (Expl,asc)
+                             , (Expl,scope [] (lamH Expl x c))
+                             ]))
+                   (In (Con (Absolute "LE" "QCDone")
+                            [( Expl
+                             , scope
+                                 []
+                                 (substMetas
+                                    metaSubstitutions
+                                    returnCatToReabstract)
+                             )]))
+                   [ (x,asc) | ((_,asc),x) <- metasAndFrees ]
+               returnTerm =
+                 foldr
+                   (lamH Impl)
+                   (substMetas
+                     metaSubstitutions
+                     returnTermToReabstract)
+                   freeVarsToSubstitute
            in return (returnTerm, returnCat)
-      else empty
+         else
+           empty
     goRule elabState
+           metas
            impl
            expl
            (In (Con (Absolute "LE" "RArg") [(_,asc),(_,bsc)]))
            =
-      do cat <- nextLabel
+      do c <- nextLabel
          let argCat = substMetas (_substitution elabState) (instantiate0 asc)
+             (elabState',metas',argImpls,c') =
+                qcatToCat elabState [] [] c
              uniRes =
                runStateT
-                 (unifyJ substitution context cat argCat)
-                 elabState
+                 (unifyJ substitution
+                         [Lens context, Lens holeContext]
+                         c'
+                         argCat)
+                 elabState'
          case uniRes of
            Left _ -> empty
-           Right (_,elabState') ->
+           Right (_,elabState'') ->
              do val <- nextData
+                let appliedVal = foldl' (appH Impl) val argImpls
                 goRule
-                  elabState'
+                  elabState''
+                  (metas' ++ metas)
                   impl
-                  (expl ++ [val])
-                  (substMetas (_substitution elabState')
+                  (expl ++ [appliedVal])
+                  (substMetas (_substitution elabState'')
                               (instantiate0 bsc))
-    goRule _ _ _ _ =
+    goRule _ _ _ _ _ =
       error "The function goRule was given a non-Rule term."
 
 
@@ -281,19 +376,30 @@ combineExtracts =
          (LEExtract [] [] [])
 
 
--- | The full extraction for a program involves parsing, elaborating, then
+-- | The full extraction for a package involves parsing, elaborating, then
 -- extracting the words and rules.
 
 extract :: [PackageBuild]
-        -> String
-        -> Either String LEExtract
-extract bg src =
-  do prog <- parseProgram src
+        -> [(String,String)]
+        -> Either String ([String], LEExtract, PackageBuild)
+extract bg files =
+  do fileProgs <- mapM (uncurry parseProgram) files
+     let prog = Program $ do
+           Program mods <- fileProgs
+           mods
      pkg <- buildWithPreludes bg prog
-     let (wds,rles) = filterWordsAndRules (packageDefinitions pkg)
-     return LEExtract
-            { extractEnvironment =
-                definitionsToEnvironment (packageDefinitions pkg)
-            , extractWords = wds
-            , extractRules = rles
-            }
+     let bgDefs = concatMap packageDefinitions bg
+         (wds,rles) =
+           filterWordsAndRules
+             (definitionsToEnvironment (bgDefs ++ packageDefinitions pkg))
+             (packageDefinitions pkg)
+     return
+       ( packageModuleNames pkg
+       , LEExtract
+           { extractEnvironment =
+               definitionsToEnvironment (packageDefinitions pkg) 
+           , extractWords = wds
+           , extractRules = rles
+           }
+       , pkg
+       )
