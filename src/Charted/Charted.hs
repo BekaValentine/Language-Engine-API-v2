@@ -1,6 +1,6 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 -- | This module defines the Charted chart parser.
