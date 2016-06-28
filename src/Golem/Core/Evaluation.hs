@@ -144,14 +144,15 @@ instance ParamEval Int (Env EnvKey Term) Term where
   paramEval l (In (Lam plic sc)) =
     do esc <- underF (paramEval l) sc
        return $ In (Lam plic esc)
-  paramEval 0 (In (App plic f a)) =
+  paramEval 0 m@(In (App plic f a)) =
     do ef <- paramEval 0 (instantiate0 f)
        ea <- paramEval 0 (instantiate0 a)
        case ef of
          In (Lam plic' sc)
            | plic == plic' -> paramEval 0 (instantiate sc [ea])
            | otherwise ->
-               throwError "Mismatching plicities."
+               throwError
+                 $ "Mismatching plicities when evaluating " ++ pretty m
          _      -> return $ appH plic ef ea
   paramEval l (In (App plic f a)) =
     do ef <- paramEval l (instantiate0 f)
@@ -208,9 +209,9 @@ instance ParamEval Int (Env EnvKey Term) Term where
   paramEval l (In (Quote m)) =
     do em <- paramEval (l+1) (instantiate0 m)
        return $ quoteH em
-  paramEval 0 (In (Unquote _)) =
+  paramEval 0 m@(In (Unquote _)) =
     throwError $ "Cannot evaluate an unquote at level 0. "
-                 ++ "No such term should exist."
+                 ++ "No such term should exist: " ++ pretty m
   paramEval 1 (In (Unquote m)) =
     do em <- paramEval 0 (instantiate0 m)
        case em of

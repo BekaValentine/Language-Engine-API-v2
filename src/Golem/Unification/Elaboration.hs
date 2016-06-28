@@ -130,21 +130,43 @@ addResetPoint res lower upper =
 -- where @Δ # x@ means that @x@ is not defined in @Δ@.
 
 elabTermDecl :: TermDeclaration -> Elaborator ()
-elabTermDecl (TermDeclaration n ty0 def0) =
+elabTermDecl d@(TermDeclaration n ty0 def0) =
   do let ty = freeToDefined (In . Defined . BareLocal) ty0
          def = freeToDefined (In . Defined . BareLocal) def0
      m <- getElab moduleName
      when' (typeInDefinitions (BareLocal n))
          $ throwError ("Term already defined: " ++ n)
      addAlias n
-     elty <- check ty (NormalTerm (In Type))
-     ety <- evaluate (SubstitutedTerm elty) -- @ty@ has no metas to substitute.
-     eldef <- extendElab definitions [((m,n),(def,normTerm ety))]
-                $ check def ety
+     elty <-
+       catchError
+         (check ty (NormalTerm (In Type)))
+         (\e ->
+           throwError $
+             "Error when checking the type in declaration:\n\n" ++ show d
+             ++ "\n\nNamely:\n" ++ e)
+     ety <-
+       catchError
+         (evaluate (SubstitutedTerm elty)) -- @ty@ has no metas to substitute.
+         (\e ->
+           throwError $
+             "Error when evaluating the type in declaration:\n\n" ++ show d
+             ++ "\n\nNamely:\n" ++ e)
+     eldef <-
+       catchError
+         (extendElab
+            definitions
+            [((m,n),(def,normTerm ety))]
+            (check def ety))
+         (\e ->
+           throwError $
+             "Error when checking the type of the value in the"
+             ++ " declaration:\n\n" ++ show d ++ "\n\nNamely:\n" ++ e)
      addDeclaration (m,n) eldef (normTerm ety)
-elabTermDecl (WhereDeclaration n ty preclauses) =
+elabTermDecl d@(WhereDeclaration n ty preclauses) =
   case preclauses of
-    [] -> throwError "Cannot create an empty let-where definition."
+    [] ->
+      throwError $
+        "Cannot create an empty let-where definition: " ++ show d
     [(plics,(xs,ps,b))] | all isVarPat ps ->
       elabTermDecl
         (TermDeclaration
@@ -154,16 +176,21 @@ elabTermDecl (WhereDeclaration n ty preclauses) =
     (_,(_,ps0,_)):_ ->
       do let lps0 = length ps0
          unless (all (\(_,(_,ps,_)) -> length ps == lps0) preclauses)
-           $ throwError $ "Mismatching number of patterns in different "
-                       ++ "clauses of a pattern matching function."
+           $ throwError
+             $ "Mismatching number of patterns in different "
+            ++ "clauses of a pattern matching function in declaration: "
+            ++ show d
          let (plics:plicss) = map fst preclauses
          unless (all (plics==) plicss)
-           $ throwError $ "Mismatching plicities in different clauses of a "
-                       ++ "pattern matching function"
+           $ throwError
+           $ "Mismatching plicities in different clauses of a "
+          ++ "pattern matching function in declaration: "
+          ++ show d
          case truePlicities plics ty of
            Nothing ->
              throwError $ "Cannot build a case expression motive from the "
-                       ++ "type " ++ pretty ty
+                       ++ "type " ++ pretty ty ++ " in declaration: "
+                       ++ show d
            Just truePlics ->
              do let mot = motiveAux (length truePlics) ty
                     clauses = [ clauseH xs (truePatterns truePlics ps) b
@@ -225,18 +252,33 @@ elabTermDecl (WhereDeclaration n ty preclauses) =
       In MakeMeta : truePatterns plics ps
     truePatterns _ _ =
       error "This case of 'truePatterns' should never have been reached."
-elabTermDecl (LetFamilyDeclaration n args ty0) =
+elabTermDecl d@(LetFamilyDeclaration n args ty0) =
   do m <- getElab moduleName
-       $ throwError ("Term already defined: " ++ n)
      when' (typeInDefinitions (BareLocal n))
+       $ throwError 
+         $ "A term named " ++ n
+        ++ " is already defined when declaring family "
+        ++ show d
      let plics = [ plic | DeclArg plic _ _ <- args ]
          ty = freeToDefined (In . Defined . BareLocal)
                 $ helperFold (\(DeclArg plic x t) -> funH plic x t) args ty0
          (xs,ts) = unzip [ (x,t) | DeclArg _ x t <- args ]
          mot = fmap (freeToDefinedScope (In . Defined . BareLocal))
                     (caseMotiveH xs ts ty0)
-     elty <- check ty (NormalTerm (In Type))
-     mot' <- checkifyCaseMotive mot
+     elty <-
+       catchError
+         (check ty (NormalTerm (In Type)))
+         (\e ->
+           throwError $
+             "Error when checking the type in declaration:\n\n" ++ show d
+             ++ "\n\nNamely:\n" ++ e)
+     mot' <-
+       catchError
+         (checkifyCaseMotive mot)
+         (\e ->
+           throwError $
+             "Error when checking the motive in declaration:\n\n" ++ show d
+             ++ "\n\nNamely:\n" ++ e)
      fs <- getElab openFunctions
      case lookup (m,n) fs of
        Nothing ->
@@ -248,28 +290,45 @@ elabTermDecl (LetFamilyDeclaration n args ty0) =
                     (zip plics xs0)
                     (caseH (map (Var . Free . FreeVar) xs0) mot' [])
             addAlias n
-            ety <- evaluate (SubstitutedTerm elty)
+            ety <-
+              catchError
+                (evaluate (SubstitutedTerm elty))
+                (\e ->
+                  throwError $
+                    "Error when evaluating the type in declaration:\n\n"
+                    ++ show d ++ "\n\nNamely:\n" ++ e)
             initialDef' <-
-              extendElab definitions [((m,n),(initialDef,elty))]
-                $ check initialDef ety
+              catchError
+                (extendElab
+                  definitions
+                  [((m,n),(initialDef,elty))]
+                  (check initialDef ety))
+                (\e ->
+                  throwError $
+                    "Error when checking the type of the value in the"
+                    ++ " declaration:\n\n" ++ show d ++ "\n\nNamely:\n" ++ e)
             addDeclaration (m,n) initialDef' elty
        Just _ ->
-         throwError $ "The open function " ++ show (Absolute m n)
-                        ++ " has already been declared."
-elabTermDecl (LetInstanceDeclaration n preclauses) =
+         throwError
+           $ "The open function " ++ show (Absolute m n)
+          ++ " has already been declared when declaring family "
+          ++ show d
+elabTermDecl d@(LetInstanceDeclaration n preclauses) =
   do (m',n') <- unalias n
      fs <- getElab openFunctions
      case lookup (m',n') fs of
        Nothing ->
          throwError $ "No open function named " ++ show n
-                   ++ " has been declared."
+                   ++ " has been declared when declaring instance "
+                   ++ show d
        Just (ty,plics,mot,clauses) ->
          do clauses'
               <- forM preclauses $ \(plics',(xs,ps,b)) -> do
                    case insertMetas plics plics' of
                      Nothing ->
                        throwError $ "Instance for open function "
-                         ++ show n ++ " has invalid argument plicities."
+                         ++ show n ++ " has invalid argument plicities"
+                         ++ " in declaration " ++ show d
                      Just bs ->
                        return $
                          fmap (freeToDefinedScope
@@ -285,9 +344,23 @@ elabTermDecl (LetInstanceDeclaration n preclauses) =
                 newOpenFunctions =
                   ((m',n'),(ty,plics,mot,newClauses))
                     : filter (\(p,_) -> p /= (m',n')) fs
-            ety <- evaluate (SubstitutedTerm ty)
-            newDef' <- extendElab definitions [((m',n'), (newDef, ty))]
-                         $ check newDef ety
+            ety <-
+              catchError
+                (evaluate (SubstitutedTerm ty))
+                (\e ->
+                  throwError $
+                   "Error when evaluating the type in declaration:\n\n"
+                   ++ show d ++ "\n\nNamely:\n" ++ e)
+            newDef' <-
+              catchError
+                (extendElab
+                  definitions
+                  [((m',n'), (newDef, ty))]
+                  (check newDef ety))
+                (\e ->
+                  throwError $
+                    "Error when checking the type of the value in the"
+                    ++ " declaration:\n\n" ++ show d ++ "\n\nNamely:\n" ++ e)
             putElab openFunctions newOpenFunctions
             defs <- getElab definitions
             putElab definitions
@@ -337,10 +410,18 @@ elabAlt tycon c consig0
   = do let consig = freeToDefinedConSig consig0
        validConSig (BareLocal tycon) (BareLocal c) consig
        m <- getElab moduleName
-           $ throwError ("Constructor already declared: " ++ c)
        when' (typeInSignature (BareLocal c))
+           $ throwError
+             $ "Constructor " ++ c ++ " already declared when declaring "
+            ++ " the type " ++ tycon
        addAlias c
-       consig' <- checkifyConSig consig
+       consig' <-
+         catchError
+           (checkifyConSig consig)
+           (\e ->
+             throwError $
+               "Error when checking the signature for " ++ c ++ " in the"
+               ++ " declaration for " ++ tycon ++ "\n\nNamely:\n" ++ e)
        addConstructor (m,c) consig'
 
 
@@ -358,13 +439,26 @@ elabInstanceAlt :: String
 elabInstanceAlt m localTycon c consig0
   = do let consig = freeToDefinedConSig consig0
        validConSig localTycon (BareLocal c) consig
+       when' (typeInSignature (BareLocal c))
+           $ throwError
+             $ "Constructor " ++ c ++ " already declared when declaring "
+            ++ " the type instance " ++ showName localTycon
        sig <- getElab signature
        case lookup (m,c) sig of
          Just _
-           -> throwError ("Constructor already declared: " ++ c)
+           -> throwError 
+                $ "Constructor " ++ c ++ " already declared when declaring"
+               ++ " a type instance for " ++ showName localTycon
          Nothing
            -> do addAliasFor (Left c) (m,c)
-                 consig' <- checkifyConSig consig
+                 consig' <-
+                   catchError
+                     (checkifyConSig consig)
+                     (\e ->
+                       throwError $
+                         "Error when checking the signature for " ++ c
+                         ++ " in the declaration for " ++ showName localTycon
+                         ++ "\n\nNamely:\n" ++ e)
                  addConstructorToModule m c consig'
 
 
@@ -405,31 +499,46 @@ validConSig tycon c (ConSig _ (BindingTelescope _ retsc)) =
 -- where here @Σ # c@ means that @c@ is not a type constructor in @Σ@.
 
 elabTypeDecl :: TypeDeclaration -> Elaborator ()
-elabTypeDecl (TypeDeclaration tycon tyconargs alts)
+elabTypeDecl d@(TypeDeclaration tycon tyconargs alts)
   = do let tyconSig = freeToDefinedConSig (conSigH tyconargs (In Type))
        m <- getElab moduleName
-           $ throwError ("Type constructor already declared: " ++ tycon)
        when' (typeInSignature (BareLocal tycon))
+           $ throwError
+             $ "Type constructor " ++ tycon ++ " already declared in: "
+            ++ show d
        addAlias tycon
-       tyconSig' <- checkifyConSig tyconSig
+       tyconSig' <-
+         catchError
+           (checkifyConSig tyconSig)
+           (\e ->
+             throwError $
+               "Error when checking the signature for the type constructor in"
+               ++ " the declaration\n\n" ++ show d ++ "\n\nNamely:\n" ++ e)
        addConstructor (m,tycon) tyconSig'
        mapM_ (uncurry (elabAlt tycon)) alts
-elabTypeDecl (DataFamilyDeclaration tycon tyconargs) =
+elabTypeDecl d@(DataFamilyDeclaration tycon tyconargs) =
   do let tyconSig = freeToDefinedConSig (conSigH tyconargs (In Type))
      when' (typeInSignature (BareLocal tycon))
          $ throwError ("Type constructor already declared: " ++ tycon)
      addAlias tycon
-     tyconSig' <- checkifyConSig tyconSig
+     tyconSig' <-
+       catchError
+         (checkifyConSig tyconSig)
+         (\e ->
+            throwError $
+              "Error when checking the signature for the type constructor in"
+              ++ " the declaration\n\n" ++ show d ++ "\n\nNamely:\n" ++ e)
      m <- getElab moduleName
      addConstructor (m,tycon) tyconSig'
      od <- getElab openData
      putElab openData ((m,tycon):od)
-elabTypeDecl (DataInstanceDeclaration tycon alts) =
+elabTypeDecl d@(DataInstanceDeclaration tycon alts) =
   do (m',c') <- unalias tycon
      od <- getElab openData
      unless ((m',c') `elem` od)
-       $ throwError $ "The constructor " ++ showName tycon
-                        ++ " is not an open data type."
+       $ throwError $
+         "The constructor " ++ showName tycon ++ " is not an open data type "
+         ++ " in the declaration " ++ show d
      mapM_ (uncurry (elabInstanceAlt m' tycon)) alts
 
 
@@ -632,13 +741,22 @@ elabModule :: Module -> Elaborator ()
 elabModule (Module m settings stmts0)
   = do addModuleName m
        putElab moduleName m
-       ensureOpenSettingsAreValid settings
+       catchError
+         (ensureOpenSettingsAreValid settings)
+         (\e ->
+           throwError $
+             "Open settings for the module " ++ m ++ " are not valid."
+             ++ "\n\nNamely:\n" ++ e)
        als <- getElab aliases
        sig <- getElab signature
        defs <- getElab definitions
        let newAls = newAliases sig defs settings ++ als
        putElab aliases newAls
-       go stmts0
+       catchError
+         (go stmts0)
+         (\e ->
+           throwError $
+             "Error in module " ++ m ++ ":\n\n" ++ e)
        putElab aliases als
   where
     go :: [Statement] -> Elaborator ()

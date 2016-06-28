@@ -97,17 +97,14 @@ unalias (BareLocal n) =
   do als <- getElab aliases
      case lookup (Left n) als of
        Nothing ->
-         throwError $ "The symbol " ++ n ++ " is not an alias for any "
-                      ++ "module-declared symbol."
+         throwError $ "The symbol " ++ n ++ " is not in scope."
        Just p ->
          return p
 unalias (DottedLocal m n) =
   do als <- getElab aliases
      case lookup (Right (m,n)) als of
        Nothing ->
-         throwError $ "The symbol " ++ m ++ "." ++ n
-                      ++ " is not an alias for any "
-                      ++ "module-declared symbol."
+         throwError $ "The symbol " ++ m ++ "." ++ n ++ " is not in scope."
        Just p ->
          return p
 unalias (Absolute m n) =
@@ -365,7 +362,8 @@ inferify (Var (Free x)) =
      curLvl <- getElab quoteLevel
      unless (curLvl == lvl)
        $ throwError $ "Mismatching quote levels for "
-                        ++ pretty (Var (Free x) :: Term)
+                        ++ pretty (Var (Free x) :: Term) ++ ". Expecting "
+                        ++ show lvl ++ " but found " ++ show curLvl
      return (ElaboratedTerm (Var (Free x)), t)
 inferify (Var (Bound _ _)) =
   error "Bound type variables should not be the subject of type checking."
@@ -397,8 +395,8 @@ inferify (In (Fun plic arg0 sc)) =
      let t' = funH plic n elarg elbody
      SubstitutedTerm subt' <- substitute t'
      return (ElaboratedTerm subt', In Type)
-inferify (In (Lam _ _)) =
-  throwError "Cannot infer the type of a lambda expression."
+inferify m@(In (Lam _ _)) =
+  throwError $ "Cannot infer the type of a lambda expression: " ++ pretty m
 inferify (In (App plic f0 a0)) =
   do let f = instantiate0 f0
          a = instantiate0 a0
@@ -409,15 +407,19 @@ inferify (In (App plic f0 a0)) =
      SubstitutedTerm subapp' <- substitute app'
      SubstitutedTerm subt' <- substitute t'
      return (ElaboratedTerm subapp', subt')
-inferify (In (Con c ms0)) =
+inferify m0@(In (Con c ms0)) =
   do (ec, ConSig plics (BindingTelescope ascs bsc)) <- typeInSignature c
      let ts = zip plics ascs
          ms = [ (plic, instantiate0 m) | (plic,m) <- ms0 ]
-     (ms',b') <- inferifyConArgs ts bsc ms
+     (ms',b') <-
+       catchError
+         (inferifyConArgs ts bsc ms)
+         (\e ->
+           throwError $ "Cannot infer the type of " ++ pretty m0 ++ ":\n" ++ e)
      let m' = conH ec ms'
      SubstitutedTerm subm' <- substitute m'
      return (ElaboratedTerm subm', b')
-inferify (In (Case as0 motive cs)) =
+inferify m@(In (Case as0 motive cs)) =
   do let as = map instantiate0 as0
      elmotive <- checkifyCaseMotive motive
      let CaseMotive tele = elmotive
@@ -427,20 +429,25 @@ inferify (In (Case as0 motive cs)) =
      unless (las == largs)
        $ throwError $ "Motive " ++ pretty motive ++ " expects " ++ show largs
                    ++ " case " ++ (if largs == 1 then "arg" else "args")
-                   ++ " but was given " ++ show las
+                   ++ " but was given " ++ show las ++ " when infering the"
+                   ++ " type of " ++ pretty m
      eargs <- mapM (evaluate.SubstitutedTerm) args
        -- @args@ is already substituted
      elas <- zipWithM checkify as eargs
-     elcs <- forM cs $ \c -> checkifyClause c elmotive
+     elcs <-
+       catchError
+         (forM cs $ \c -> checkifyClause c elmotive)
+         (\e -> throwError $
+           "Cannot infer the type of " ++ pretty m ++ ":\n" ++ e)
      let m' = caseH (map elabTerm elas) elmotive elcs
      SubstitutedTerm subm' <- substitute m'
      return (ElaboratedTerm subm', ret)
 inferify (In (RecordType fields tele)) =
   do tele' <- checkifyTelescope tele
      return (ElaboratedTerm (In (RecordType fields tele')), In Type)
-inferify (In (RecordCon _)) =
-  throwError "Cannot infer the type of a record."
-inferify (In (RecordProj r x)) =
+inferify m@(In (RecordCon _)) =
+  throwError $ "Cannot infer the type of a record: " ++ pretty m
+inferify m@(In (RecordProj r x)) =
   do (ElaboratedTerm r',t) <- inferify (instantiate0 r)
      subt <- substitute t
      NormalTerm et <- evaluate subt
@@ -449,11 +456,12 @@ inferify (In (RecordProj r x)) =
          let fieldTable = zip fields (instantiations r' fields ascs')
          in case lookup x fieldTable of
               Nothing ->
-                throwError $ "Missing field " ++ x
+                throwError $ "Missing field " ++ x ++ " when infering the"
+                          ++ " type of " ++ pretty m
               Just fieldT ->
                 return (ElaboratedTerm (recordProjH r' x), fieldT)
        _ -> throwError $ "Expecting a record type but found "
-              ++ pretty et
+              ++ pretty et ++ " when infering the type of " ++ pretty m
   where
     
     -- | This just defines all the possible projections of @r'@ using fields
@@ -474,9 +482,9 @@ inferify (In (RecordProj r x)) =
 inferify (In (QuotedType resets a)) =
   do ElaboratedTerm ela <- checkify (instantiate0 a) (NormalTerm (In Type))
      return (ElaboratedTerm (quotedTypeH resets ela), In Type)
-inferify (In (Quote _)) =
-  throwError "Cannot infer the type of a quoted term."
-inferify (In (Unquote m)) =
+inferify m@(In (Quote _)) =
+  throwError $ "Cannot infer the type of a quoted term: " ++ pretty m
+inferify m0@(In (Unquote m)) =
   do (ElaboratedTerm elm, t) <- removeQuoteLevel $ inferify (instantiate0 m)
      subt <- substitute t
      NormalTerm et <- evaluate subt
@@ -491,10 +499,12 @@ inferify (In (Unquote m)) =
                           ++ unwords resets
             return (ElaboratedTerm (unquoteH elm), instantiate0 a)
        _ -> throwError $ "Expected a quoted type but found " ++ pretty et
-inferify (In (Continue m)) =
+                      ++ " when infering the type of " ++ pretty m0
+inferify m0@(In (Continue m)) =
   do l <- getElab quoteLevel
      unless (l > 0)
-       $ throwError "Cannot use continuations outside of a quote."
+       $ throwError $ "Cannot use continuations outside of a quote: "
+                   ++ pretty m0
      shifts <- getElab shiftsInScope
      case shifts of
        [] -> throwError $ "Cannot continue with " ++ pretty (instantiate0 m)
@@ -506,31 +516,34 @@ inferify (In (Continue m)) =
                 $ checkify (instantiate0 m)
                            (NormalTerm lower)
             return (ElaboratedTerm (continueH elm), upper)
-inferify (In (Shift res m)) =
+inferify m0@(In (Shift res m)) =
   do l <- getElab quoteLevel
      unless (l > 0)
-       $ throwError "Cannot use continuations outside of a quote."
+       $ throwError $ "Cannot use continuations outside of a quote: "
+                   ++ pretty m0
      resets <- getElab resetPointsInScope
      unless (res `elem` resets)
-       $ throwError $ "The reset point " ++ res ++ " is not in scope."
+       $ throwError $ "The reset point " ++ res ++ " is not in scope when"
+                   ++ " inferring the type of " ++ pretty m0
      (lower,upper) <- getResetPoint res
      ElaboratedTerm elm <-
        addShift res
          $ checkify (instantiate0 m)
                     (NormalTerm upper)
      return (ElaboratedTerm (shiftH res elm), lower)
-inferify (In (Reset res m)) =
+inferify m0@(In (Reset res m)) =
   do l <- getElab quoteLevel
      unless (l > 0)
-       $ throwError "Cannot use continuations outside of a quote."
+       $ throwError $ "Cannot use continuations outside of a quote: "
+                   ++ pretty m0
      (_,upper) <- getResetPoint res
      ElaboratedTerm elm <-
        extendResets [res]
          $ checkify (instantiate0 m)
                     (NormalTerm upper)
      return (ElaboratedTerm (resetH res elm), upper)
-inferify (In (Require _ _)) =
-  throwError "Cannot infer the type of a require term."
+inferify m@(In (Require _ _)) =
+  throwError $ "Cannot infer the type of a require term: " ++ pretty m
 inferify m@(In (Remember _ _)) =
   error $ "Remember's should never appear in type checkable code." ++ pretty m
 inferify (In (External i a)) =
@@ -739,13 +752,17 @@ checkify (In (Lam plic sc)) (NormalTerm t) =
                 ++ "\nAgainst non-function type: " ++ pretty t
      SubstitutedTerm sublam' <- substitute lam'
      return $ ElaboratedTerm sublam'
-checkify (In (Con c ms)) (NormalTerm t) =
+checkify m0@(In (Con c ms)) (NormalTerm t) =
   do (ec,ConSig plics (BindingTelescope ascs bsc)) <- typeInSignature c
-     elms' <- checkifyConArgs
-                (zip plics ascs)
-                bsc
-                [ (plic, instantiate0 m) | (plic,m) <- ms ]
-                t
+     elms' <-
+       catchError
+         (checkifyConArgs
+            (zip plics ascs)
+            bsc
+            [ (plic, instantiate0 m) | (plic,m) <- ms ]
+            t)
+         (\e ->
+           throwError $ "Cannot check the type of " ++ pretty m0 ++ ":\n" ++ e)
      let ms' = [ (plic,m') | (plic, ElaboratedTerm m') <- elms' ]
          elm = conH ec ms'
      SubstitutedTerm subelm <- substitute elm
@@ -800,10 +817,10 @@ checkify (In (Quote m)) (NormalTerm t) =
          return $ ElaboratedTerm (quoteH em)
     _ -> throwError $ "Cannot check quoted term " ++ pretty (In (Quote m))
                         ++ " against type " ++ pretty t
-checkify (In (Require a sc)) (NormalTerm t) =
+checkify m@(In (Require a sc)) (NormalTerm t) =
   do l <- getElab quoteLevel
      unless (l > 0)
-       $ throwError "Cannot use requires outside of a quote."
+       $ throwError $ "Cannot use requires outside of a quote: " ++ pretty m
      ElaboratedTerm ea <- checkify (instantiate0 a) (NormalTerm (In Type))
      [x@(FreeVar n)] <- freshRelTo (names sc) context
      ElaboratedTerm em <-
@@ -1051,14 +1068,18 @@ checkifyPattern (Var (Free x)) t =
             )
 checkifyPattern (Var (Meta _)) _ =
   error "Metavariables should not be the subject of pattern type checking."
-checkifyPattern (In (ConPat c ps)) (NormalTerm t) =
+checkifyPattern p0@(In (ConPat c ps)) (NormalTerm t) =
   do (ec,ConSig plics (BindingTelescope ascs bsc)) <- typeInSignature c
      (ps',elms') <-
-       checkifyPatterns
-         (zip plics ascs)
-         bsc
-         [ (plic, instantiate0 p) | (plic,p) <- ps ]
-         t
+       catchError
+         (checkifyPatterns
+           (zip plics ascs)
+           bsc
+           [ (plic, instantiate0 p) | (plic,p) <- ps ]
+           t)
+         (\e ->
+           throwError $
+             "Cannot check the type of pattern " ++ pretty p0 ++ ":\n" ++ e)
      let ms' = [ (plic,m') | (plic, ElaboratedTerm m') <- elms' ]
      return ( conPatH ec ps'
             , ElaboratedTerm (conH ec ms')
