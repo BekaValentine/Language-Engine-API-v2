@@ -846,6 +846,8 @@ instance Parens Term where
     ,QuoteArg,UnquoteArg,ContinueArg,ShiftArg,ResetArg,RequireType,RequireBody
     ]
   
+  parenRec (Var (Bound n (BoundVar i))) =
+    n ++ "@" ++ show i
   parenRec (Var v) =
     name v
   parenRec (In (Defined n)) = showName n
