@@ -226,9 +226,9 @@ angular.module('leApp').
     var usersService = {
       create: function (un,email,pw) {
         var signupInfo = {
-          usernameConf: un,
-          passwordConf: pw,
-          emailAddressConf: email
+          usernameConfig: un,
+          passwordConfig: pw,
+          emailAddressConfig: email
         };
         
         return $http.post(apiInfo.url + '/users', signupInfo, {
