@@ -130,7 +130,6 @@
                    value="Delete"
                    ng-click="deleteFile()">
         </p>
-        <p ng-show="fileEditing.waiting">Compiling... Please wait...</p>
         <p ng-show="fileEditing.hasError" ng-bind-html="fileEditing.error"></p>
         <p>Name: <input type="text" ng-trim="false" ng-model="fileEditing.name"></p>
         <p>Description:</p>
