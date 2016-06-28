@@ -59,9 +59,24 @@ removeRequires m0 =
     go :: Term -> State ReplaceState Term
     go (Var v) = return (Var v)
     go (In (Require a sc)) =
-      do m <- newMeta (instantiate0 a)
-         go (instantiate sc [m])
+      do a' <- go (instantiate0 a)
+         m@(Var (Meta v)) <- newMeta a'
+         x <- go (instantiate sc [m])
+         return $ rememberH v x
     go (In x) = In <$> traverse (underF go) x
+
+
+
+
+
+-- | 'removeRemembers' strips out the occurrences of 'Remember' from terms.
+
+removeRemembers :: Term -> Term
+removeRemembers (Var v) = Var v
+removeRemembers (In (Remember _ sc)) =
+  removeRemembers (instantiate0 sc)
+removeRemembers (In x) =
+  In (fmap (under removeRemembers) x)
 
 
 
@@ -167,6 +182,9 @@ captureScopes m0 =
       goTele (map FreeVar (names (last ascs)))
              []
              ascs
+    go (In (Remember m sc)) =
+      do capture m
+         go (instantiate0 sc)
     go (In x) =
       traverse_ (go . body) x
     
@@ -297,7 +315,12 @@ solve defs resources0 m =
                           ]
                     return (meta, resources0 ++ newResources)
            in do subs <- goSubstitutions resourcesByMeta sortedProblems
-                 case evalTerm defs (substMetas subs em) of
+                 case evalTermAtLevel
+                        defs
+                        (substMetas
+                           subs
+                           (removeRemembers em))
+                        1 of
                    Nothing -> []
                    Just em' -> [em']
   where

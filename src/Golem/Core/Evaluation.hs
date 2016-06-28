@@ -228,9 +228,9 @@ instance ParamEval Int (Env EnvKey Term) Term where
   paramEval l (In (Reset res m)) =
     do em <- paramEval l (instantiate0 m)
        return $ resetH res em
-  paramEval 0 (In (Require _ _)) =
-    throwError $ "Cannot evaluate a require at level 0. "
-                 ++ "No such term should exist."
+  paramEval l (In (Remember m sc)) =
+    do esc <- underF (paramEval l) sc
+       return $ In (Remember m esc)
   paramEval l (In (Require a sc)) =
     do ea <- underF (paramEval l) a
        esc <- underF (paramEval l) sc

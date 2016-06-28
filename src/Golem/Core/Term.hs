@@ -25,6 +25,7 @@ import Golem.Utils.Names
 import Golem.Utils.Plicity
 import Golem.Utils.Pretty
 import Golem.Utils.Telescope
+import Golem.Utils.Vars
 
 import Control.Monad
 import Data.Bifoldable
@@ -78,6 +79,7 @@ data TermF r
   | Shift String r
   | Reset String r
   | Require r r
+  | Remember MetaVar r
   | External Int r
   | Postulate r
   deriving (Functor,Foldable,Traversable)
@@ -126,6 +128,8 @@ instance Eq1 TermF where
     res == res' && m == m'
   eq1 (Require a sc) (Require a' sc') =
     a == a' && sc == sc'
+  eq1 (Remember _ _) _ = undefined
+  eq1 _ (Remember _ _) = undefined
   eq1 (External i a) (External i' a') =
     i == i' && a == a'
   eq1 (Postulate a) (Postulate a') =
@@ -182,6 +186,8 @@ instance Ord1 TermF where
     compare r r' `mappend` compare m m'
   compare1 (Require a m) (Require a' m') =
     compare a a' `mappend` compare m m'
+  compare1 (Remember _ _) _ = undefined
+  compare1 _ (Remember _ _) = undefined
   compare1 (External i a) (External i' a') =
     compare i i' `mappend` compare a a'
   compare1 (Postulate a) (Postulate a') =
@@ -209,6 +215,7 @@ instance Ord1 TermF where
       conName (Shift _ _) = SHIFT
       conName (Reset _ _) = RESET
       conName (Require _ _) = REQUIRE
+      conName (Remember _ _) = undefined
       conName (External _ _) = EXTERNAL
       conName (Postulate _) = POSTULATE
 
@@ -287,6 +294,7 @@ instance BinaryF TermF where
     do put (19 :: Word8)
        put a
        put sc
+  putF (Remember _ _) = undefined
   putF (External i a) =
     do put (20 :: Word8)
        put i
@@ -643,6 +651,9 @@ resetH res m = In (Reset res (scope [] m))
 requireH :: String -> Term -> Term -> Term
 requireH x a m = In (Require (scope [] a) (scope [x] m))
 
+rememberH :: MetaVar -> Term -> Term
+rememberH x m = In (Remember x (scope [] m))
+
 externalH :: Int -> Term -> Term
 externalH i a = In (External i (scope [] a))
 
@@ -798,6 +809,11 @@ instance Parens Term where
     ,MotiveRet,ClauseBody,RecFieldType,RecFieldVal,ShiftArg,ResetArg
     ,RequireType,RequireBody
     ]
+  parenLoc (In (Remember _ _)) =
+    [AnnType,FunArg,FunRet,LamBody,AppArg Impl,ConArg Impl,CaseArg,MotiveArg
+    ,MotiveRet,ClauseBody,RecFieldType,RecFieldVal,ShiftArg,ResetArg
+    ,RequireType,RequireBody
+    ]
   parenLoc (In (External _ _)) =
     [AnnTerm,AnnType,FunArg,FunRet,LamBody,AppFun,AppArg Expl,AppArg Impl
     ,ConArg Expl,ConArg Impl,CaseArg,MotiveArg,MotiveRet,ClauseBody
@@ -916,6 +932,9 @@ instance Parens Term where
     "require " ++ head (names sc) ++ " : "
       ++ parenthesize (Just RequireType) (instantiate0 a)
       ++ " in " ++ parenthesize (Just RequireBody) (body sc)
+  parenRec (In (Remember (MetaVar m) x)) =
+    "remember ?metavar" ++ show m ++ " in "
+     ++ parenthesize Nothing (instantiate0 x)
   parenRec (In (External i a)) =
     "<external " ++ show i ++ " : "
       ++ parenthesize Nothing (instantiate0 a) ++ " >"
