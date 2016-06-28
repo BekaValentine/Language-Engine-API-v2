@@ -758,6 +758,7 @@ elabModule (Module m settings stmts0)
            throwError $
              "Error in module " ++ m ++ ":\n\n" ++ e)
        putElab aliases als
+       holesSolved
   where
     go :: [Statement] -> Elaborator ()
     go [] = return ()
@@ -767,6 +768,32 @@ elabModule (Module m settings stmts0)
                               go stmts
     go (ResetDecl r:stmts) = do elabResetDecl r
                                 go stmts
+    
+    showContext :: Context -> String
+    showContext [] = "ε"
+    showContext ctx =
+      unlines
+        [ "  " ++ n ++ " : " ++ pretty t ++ " @ " ++ show lvl
+        | (FreeVar n, QLJ t lvl) <- ctx
+        ]
+    
+    holesSolved :: Elaborator ()
+    holesSolved =
+      do hctx <- getElab holeContext
+         if null hctx
+            then return ()
+            else do
+              ctxs <- getElab contextsForHoles
+              let prettyHoles =
+                    unlines
+                      [ "?" ++ n ++ " : " ++ pretty t ++ " @ " ++ show lvl
+                        ++ " in context\n"
+                        ++ showContext (fromJust (lookup (FreeVar n) ctxs))
+                      | (FreeVar n, QLJ t lvl) <- reverse hctx
+                      ]
+              throwError $
+                "Not all holes in module " ++ m ++ " have been solved:\n\n"
+                ++ prettyHoles
 
 
 
