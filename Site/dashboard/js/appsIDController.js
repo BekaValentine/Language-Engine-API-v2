@@ -327,6 +327,7 @@ angular.module('leApp').
         }
       } else {
         $scope.appPackagesEditing.editing = false;
+        $scope.appPackagesEditing.hasError = false;
       }
     };
     $scope.cancelEditingPackages = function () {
