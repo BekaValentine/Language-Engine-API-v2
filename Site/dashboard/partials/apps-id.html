@@ -67,6 +67,17 @@
                 <p>{{summary.packageDescriptionSummary}}</p>
                 <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
                 <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
+                <p>
+                    <em>Modules</em>
+                    <ul>
+                        <li ng-show="0 === summary.packageModuleNamesSummary.length">
+                            No modules.
+                        </li>
+                        <li ng-repeat="moduleName in summary.packageModuleNamesSummary">
+                            {{moduleName}}
+                        </li>
+                    </ul>
+                </p>
             </li>
         </ul>
     </div>
@@ -85,6 +96,17 @@
                 <p>{{summary.packageDescriptionSummary}}</p>
                 <p><em>Uses Prelude</em> {{summary.packageUsesPreludeSummary}}</p>
                 <p><em>Is Public</em> {{summary.packageIsPublicSummary}}</p>
+                <p>
+                    <em>Modules</em>
+                    <ul>
+                        <li ng-show="0 === summary.packageModuleNamesSummary.length">
+                            No modules.
+                        </li>
+                        <li ng-repeat="moduleName in summary.packageModuleNamesSummary">
+                            {{moduleName}}
+                        </li>
+                    </ul>
+                </p>
             </li>
         </ul>
     </div>
