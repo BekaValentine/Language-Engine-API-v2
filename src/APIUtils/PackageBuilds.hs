@@ -16,7 +16,6 @@ import Golem.Unification.Elaboration
 import Golem.Unification.Elaborator
 
 import Data.Binary
-import Data.List
 import GHC.Generics
 
 
@@ -97,9 +96,11 @@ buildWithPreludes bg prog =
                      Nothing -> return ((m,n),x)
                      Just _ -> []
             , packageModuleNames =
-                _moduleNames elabState \\ mods
+                filter (\x -> not (x `elem` mods))
+                       (_moduleNames elabState)
             , packageOpenData =
-                _openData elabState \\ odata
+                filter (\x -> not (x `elem` odata))
+                       (_openData elabState)
             , packageOpenFunctions =
                 do ((m,n),x) <- _openFunctions elabState
                    case lookup (m,n) ofun of
