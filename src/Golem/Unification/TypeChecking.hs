@@ -963,6 +963,14 @@ checkifyConArgs ascs0 bsc ms0 t =
                    -> TypeChecker [(Plicity,Maybe Term,Term,Term)]
     accArgsToCheck acc [] [] =
       return acc
+    accArgsToCheck _ [] ((plic,m):_) =
+      throwError $
+        "Expecting no more arguments but found an " ++
+          (case plic of { Impl -> "implicit" ; Expl -> "explicit"}) ++
+          " argument: " ++ pretty m
+    accArgsToCheck _ ((Expl,_):_) [] =
+      throwError $
+        "Expecting an explicit argument but found nothing."
     accArgsToCheck acc ((Expl,asc):ascs) ((Expl,m):ms) =
       do meta <- nextElab nextMeta
          let x = Var (Meta meta)
@@ -972,6 +980,10 @@ checkifyConArgs ascs0 bsc ms0 t =
            (acc ++ [newSuspension])
            ascs
            ms
+    accArgsToCheck _ ((Expl,_):_) ((Impl,m):_) =
+      throwError $
+        "Expecting an explicit argument but found the implicit argument "
+        ++ pretty m
     accArgsToCheck acc ((Impl,asc):ascs) ((Impl,m):ms) =
       do meta <- nextElab nextMeta
          let x = Var (Meta meta)
@@ -990,8 +1002,6 @@ checkifyConArgs ascs0 bsc ms0 t =
            (acc ++ [newSuspension])
            ascs
            ms
-    accArgsToCheck _ _ _ =
-      throwError "Cannot match signature."
     
     swapMetas :: [(Plicity,Term)]
               -> TypeChecker ([(Term,Term)], [(Plicity,Term)])
@@ -1179,6 +1189,14 @@ checkifyPatterns ascs0 bsc ps0 t =
                    -> TypeChecker [(Plicity,Maybe Pattern,Term,Term)]
     accArgsToCheck acc [] [] =
       return acc
+    accArgsToCheck _ [] ((plic,p):_) =
+      throwError $
+        "Expecting no more arguments but found an " ++
+          (case plic of { Impl -> "implicit" ; Expl -> "explicit"}) ++
+          " argument: " ++ pretty p
+    accArgsToCheck _ ((Expl,_):_) [] =
+      throwError $
+        "Expecting an explicit argument but found nothing."
     accArgsToCheck acc ((Expl,asc):ascs) ((Expl,p):ps) =
       do meta <- nextElab nextMeta
          let x = Var (Meta meta)
@@ -1188,6 +1206,10 @@ checkifyPatterns ascs0 bsc ps0 t =
            (acc ++ [newSuspension])
            ascs
            ps
+    accArgsToCheck _ ((Expl,_):_) ((Impl,p):_) =
+      throwError $
+        "Expecting an explicit argument but found the implicit argument "
+        ++ pretty p
     accArgsToCheck acc ((Impl,asc):ascs) ((Impl,p):ps) =
       do meta <- nextElab nextMeta
          let x = Var (Meta meta)
@@ -1206,8 +1228,6 @@ checkifyPatterns ascs0 bsc ps0 t =
            (acc ++ [newSuspension])
            ascs
            ps
-    accArgsToCheck _ _ _ =
-      throwError "Cannot match signature."
     
     swapMetas :: [(Plicity,Term)]
               -> TypeChecker ([(Term,Term)], [(Plicity,Term)])
