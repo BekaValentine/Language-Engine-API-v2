@@ -109,7 +109,7 @@ instance Binary Variable
 name :: Variable -> String
 name (Free (FreeVar n)) = n
 name (Bound n _)        = n
-name (Meta i)           = "?" ++ show i
+name (Meta i)           = "meta:" ++ show i
 
 
 -- | Equality of variables is by the parts which identify them, so names for
