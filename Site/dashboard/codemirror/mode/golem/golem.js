@@ -19,7 +19,7 @@ CodeMirror.defineMode("golem", function(_config, modeConfig) {
                   "renaming","to",
                   "family","instance",
                   "continue","shift","reset","from","in",
-                  "require"
+                  "require","forall"
                   ];
   
   var switchState = function (stream, setState, f) {
@@ -42,6 +42,14 @@ CodeMirror.defineMode("golem", function(_config, modeConfig) {
     } else if (stream.eat("\"")) {
       
       return switchState(stream, setState, stringLiteral);
+      
+    } else if (stream.match(/\[[a-zA-Z_]*\|/)) {
+      
+      return null;
+      
+    } else if (stream.match("|]")) {
+      
+      return null;
       
     } else if (tok = stream.match(/[A-Z][a-zA-Z0-9]*/)) {
       
