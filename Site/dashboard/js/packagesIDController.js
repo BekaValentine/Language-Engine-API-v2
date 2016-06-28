@@ -108,15 +108,23 @@ angular.module('leApp').
     };
     
     $scope.buildPackage = function () {
+      let successCallback = function () {
+        $scope.buildInfo.waiting = false;
+        $scope.buildInfo.hasError = false;
+        $scope.packageInfo.packageNeedsBuild = false;
+      };
+      
+      let errorCallback = function (response) {
+        $scope.buildInfo.waiting = false;
+        $scope.buildInfo.hasError = true;
+        $scope.buildInfo.error = "Error: " + response.data;
+      };
+      
+      $scope.buildInfo.waiting = true;
+      $scope.buildInfo.hasError = false;
+      
       apiService.packages.id.build.create($scope.packageInfo.packageID).
-        success(function (data) {
-          if (data.errorMessage && data.errorMessage !== "") {
-            $scope.buildInfo.hasError = true;
-            $scope.buildInfo.error = data.errorMessage;
-          } else {
-            $scope.buildInfo.hasError = false;
-          }
-        });
+        then(successCallback,errorCallback);
     };
     
     $scope.deletePackage = function () {
