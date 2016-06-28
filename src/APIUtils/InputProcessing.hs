@@ -11,7 +11,6 @@
 
 module APIUtils.InputProcessing where
 
-import APIUtils.EntityBuilding
 import APIUtils.GrammarExtraction
 import APIUtils.WorldModel
 import Charted.Charted
@@ -50,17 +49,14 @@ data ProcessingInfo
 
 processInput :: ProcessingInfo
              -> String
-             -> Either (Maybe (ParseError String String)) (WorldModel, [Fact])
+             -> Either (Maybe (ParseError String String)) String
 processInput pinfo str =
   case parse grammr lexr str of
     Left err ->
       Left (Just (prettyParseError pretty pretty err))
     Right parses ->
       case solutions parses of
-        [sem] ->
-          case makeTrue (worldModel pinfo) sem of
-            Nothing -> Left Nothing
-            Just res -> Right res
+        [sem] -> return (pretty sem)
         _     -> Left Nothing
   where
     lexr = convertWordsToLexer (lexicon pinfo)
