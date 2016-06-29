@@ -7,7 +7,7 @@ synopsis:            The new, fully decked out version of Language Engine, built
 -- description:         
 homepage:            http://www.languagengine.co/
 -- license:             
-license-file:        LICENSE
+-- license-file:        LICENSE
 author:              Darryl McAdams
 maintainer:          darryl@languagengine.co
 -- copyright:           
