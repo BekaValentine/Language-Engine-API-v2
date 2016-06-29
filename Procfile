@@ -1,1 +1,1 @@
-web: bin/Language-Engine-API-v2-0.1.0.0
+web: bin/Main
