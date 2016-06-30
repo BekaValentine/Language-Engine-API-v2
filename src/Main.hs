@@ -128,7 +128,7 @@ main = do
   putStrLn $ "data file location: " ++ fp
   hSetBuffering stdout LineBuffering
   env <- getEnvironment
-  --let port = maybe 8080 read $ lookup "PORT" env
+  let port = maybe 8080 read $ lookup "PORT" env
   url <- fmap BS.pack (getEnv "DATABASE_URL")
   conn <- DB.connectPostgreSQL url
   {-
