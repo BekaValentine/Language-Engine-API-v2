@@ -19,6 +19,7 @@ import API.Login
 import API.Packages
 import API.Users
 
+import qualified Data.ByteString.Char8 as BS
 import qualified Database.PostgreSQL.Simple as DB
 import Network.Mail.SMTP
 import Network.Socket (HostName,PortNumber)
@@ -27,6 +28,8 @@ import Network.Wai.Middleware.Cors
 import Servant
 import System.Environment
 import System.IO
+
+import Paths_Language_Engine_API_v2
 
 
 
