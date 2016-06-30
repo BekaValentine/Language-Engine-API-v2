@@ -1,5 +1,12 @@
 'use strict';
 
+
+function linesToParagraphs(str) {
+  return str.split("\n").join("<br/>\n");
+}
+
+
+
 angular.module('leApp').
   controller('PackagesIDController', ['$scope', '$route', '$location', 'apiService',
   function ($scope, $route, $location, apiService) {
@@ -117,7 +124,7 @@ angular.module('leApp').
       let errorCallback = function (response) {
         $scope.buildInfo.waiting = false;
         $scope.buildInfo.hasError = true;
-        $scope.buildInfo.error = "Error: " + response.data;
+        $scope.buildInfo.error = linesToParagraphs(response.data);
       };
       
       $scope.buildInfo.waiting = true;

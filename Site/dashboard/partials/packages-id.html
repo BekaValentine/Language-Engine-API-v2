@@ -56,12 +56,11 @@
                value="Build"
                ng-click="buildPackage()"
                ng-show="packageInfo.packageIsOwn">
-        <span ng-show="buildInfo.waiting">
+        <p ng-show="buildInfo.waiting">
             Building... Please wait...
-        </span>
-        <span ng-show="buildInfo.hasError">
-            {{buildInfo.error}}
-        </span>
+        </p>
+        <p ng-show="buildInfo.hasError" ng-bind-html="buildInfo.error">
+        </p>
     </p>
     
     <div>
