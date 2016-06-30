@@ -159,6 +159,7 @@ angular.module('leApp').
   function ($scope, $route, $location, apiService) {
     
     $scope.cmOption = {
+      lineWrapping: true,
       readOnly: 'nocursor',
       theme: 'base16-light',
       onLoad: function (cm) {
