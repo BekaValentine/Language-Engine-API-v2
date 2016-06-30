@@ -32,6 +32,7 @@ import Golem.Utils.Pretty
 
 import Control.Monad
 import qualified Control.Monad.State as S
+import Data.Aeson
 import Data.Bifunctor
 import Data.Binary
 import Data.Bitraversable
@@ -79,8 +80,10 @@ import GHC.Generics
 data ABT f
   = Var Variable
   | In (f (Scope f))
+  deriving (Generic)
 
 deriving instance Show (f (Scope f)) => Show (ABT f)
+
 
 
 
@@ -102,6 +105,7 @@ data Variable
   deriving (Show,Ord,Generic)
 
 instance Binary Variable
+instance ToJSON Variable
 
 
 -- | The name of a variable.

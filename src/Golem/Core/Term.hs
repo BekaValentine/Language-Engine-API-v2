@@ -28,6 +28,7 @@ import Golem.Utils.Telescope
 import Golem.Utils.Vars
 
 import Control.Monad
+import Data.Aeson
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Binary
@@ -35,6 +36,7 @@ import Data.Bitraversable
 import Data.Functor.Classes
 import Data.Functor.Compose
 import Data.List (intercalate)
+import GHC.Generics
 
 
 
@@ -83,7 +85,7 @@ data TermF r
   | External Int r
   | Postulate r
   | Hole String
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq1 TermF where
@@ -343,6 +345,18 @@ instance BinaryF TermF where
 
 type Term = ABT TermF
 
+instance ToJSON (ABT TermF)
+instance ToJSON (TermF (Scope TermF))
+instance ToJSON (Scope TermF)
+instance ToJSON (Telescope (Scope TermF))
+instance ToJSON (ClauseF (Scope TermF))
+instance ToJSON (CaseMotiveF (Scope TermF))
+instance ToJSON (PatternF (Scope TermF))
+instance ToJSON (BindingTelescope (Scope TermF))
+instance ToJSON (Scope (PatternFF (Scope TermF)))
+instance ToJSON (ABT (PatternFF (Scope TermF)))
+instance ToJSON (PatternFF (Scope TermF) (Scope (PatternFF (Scope TermF))))
+
 
 -- | A case motive is a telescope that describes the arguments of a case
 -- expression and the expression as a whole. Because this variant is
@@ -355,7 +369,7 @@ type Term = ABT TermF
 -- a very good resource.
 
 newtype CaseMotiveF r = CaseMotive (BindingTelescope r)
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq1 CaseMotiveF where
@@ -380,7 +394,7 @@ type CaseMotive = CaseMotiveF (Scope TermF)
 
 data ClauseF r
   = Clause [PatternF r] r
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq1 ClauseF where
@@ -428,7 +442,7 @@ data PatternFF a r
   = ConPat Name [(Plicity,r)]
   | AssertionPat a
   | MakeMeta
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq a => Eq1 (PatternFF a) where
@@ -523,6 +537,7 @@ instance Binary a => BinaryF (PatternFF a) where
 -- sub-sort of term shape. This ought to be generic, but Haskell can'
 
 newtype PatternF a = PatternF { unwrapPatternF :: Scope (PatternFF a) }
+  deriving (Generic)
 
 
 instance Eq1 PatternF where

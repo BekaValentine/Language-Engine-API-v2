@@ -1,6 +1,7 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -21,6 +22,7 @@ import Control.Monad
 import Data.Binary
 import Data.Functor.Classes
 import Data.List (inits)
+import GHC.Generics
 
 
 
@@ -33,7 +35,7 @@ import Data.List (inits)
 
 newtype Telescope a
   = Telescope [a]
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq1 Telescope where
@@ -160,7 +162,7 @@ instantiateTelescopeNames (Telescope ascs) ns = cs
 
 data BindingTelescope a
   = BindingTelescope [a] a
-  deriving (Functor,Foldable,Traversable)
+  deriving (Functor,Foldable,Traversable,Generic)
 
 
 instance Eq1 BindingTelescope where

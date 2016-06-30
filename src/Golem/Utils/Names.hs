@@ -12,6 +12,7 @@
 
 module Golem.Utils.Names where
 
+import Data.Aeson
 import Data.Binary
 import GHC.Generics
 
@@ -33,6 +34,7 @@ data Name
   deriving (Show,Eq,Ord,Generic)
 
 instance Binary Name
+instance ToJSON Name
 
 
 showName :: Name -> String

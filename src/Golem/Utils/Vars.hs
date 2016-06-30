@@ -10,6 +10,7 @@
 
 module Golem.Utils.Vars where
 
+import Data.Aeson
 import Data.Binary
 import GHC.Generics
 
@@ -30,6 +31,7 @@ newtype FreeVar = FreeVar String
   deriving (Show,Eq,Ord,Generic)
 
 instance Binary FreeVar
+instance ToJSON FreeVar
 
 
 
@@ -40,6 +42,7 @@ newtype BoundVar = BoundVar Int
   deriving (Show,Eq,Ord,Generic)
 
 instance Binary BoundVar
+instance ToJSON BoundVar
 
 
 
@@ -50,6 +53,7 @@ newtype MetaVar = MetaVar Int
   deriving (Show,Num,Eq,Ord,Generic)
 
 instance Binary MetaVar
+instance ToJSON MetaVar
 
 
 
