@@ -58,8 +58,8 @@ function showREPLError(err) {
       forEach(function (bracketted) {
         response += "\n\n ";
         bracketted.forEach(function (sequence) {
-          response += " [" + sequence.sequenceLabel.substring(4) +
-                      " " + sequence.sequenceWords + "]";
+          response += " [(" + sequence.sequenceLabel +
+                      ") " + sequence.sequenceWords + "]";
         });
       });
     
