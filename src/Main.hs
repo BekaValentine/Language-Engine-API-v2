@@ -86,6 +86,7 @@ siteServer fp
 type LanguageEngineServer =
        "api" :> LanguageEngineAPI
   :<|> "site" :> LanguageEngineSite
+  :<|> Get '[JSON] [Int]
 
 
 
@@ -103,6 +104,7 @@ server conn fp hn pn ea un pw
   =
        apiServer conn hn pn ea un pw
   :<|> siteServer fp
+  :<|> return [1,2,3]
 
 
 
