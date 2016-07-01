@@ -11,6 +11,7 @@
 
 module APIUtils.InputProcessing where
 
+import APIUtils.CategoryPrettyPrinting
 import APIUtils.GrammarExtraction
 import APIUtils.PropositionSerialization
 import APIUtils.WorldModel
@@ -54,7 +55,7 @@ processInput :: ProcessingInfo
 processInput pinfo str =
   case parse grammr lexr str of
     Left err ->
-      Left (Just (prettyParseError pretty pretty err))
+      Left (Just (prettyParseError pretty prettyTermAsQCategory err))
     Right parses ->
       case solutions parses of
         [sem] ->
