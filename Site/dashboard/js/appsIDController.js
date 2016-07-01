@@ -70,8 +70,9 @@ function showREPLError(err) {
     
 function showREPLResponse(data) {
   if ("REPLConversationChange" === data.tag) {
-    console.log(data.replChange);
-    return data.replChange; //showREPLChange(data.replChange);
+    let prop = Prop.pretty(DataBinary.runDeserializer(getProp, data.replChange));
+    console.log(prop);
+    return prop; //showREPLChange(data.replChange);
   } else if ("REPLConversationError" === data.tag) {
     return showREPLError(data.replError);
   }

@@ -12,6 +12,7 @@
 module APIUtils.InputProcessing where
 
 import APIUtils.GrammarExtraction
+import APIUtils.PropositionSerialization
 import APIUtils.WorldModel
 import Charted.Charted
 import Golem.Core.Decontinuization
@@ -56,7 +57,10 @@ processInput pinfo str =
       Left (Just (prettyParseError pretty pretty err))
     Right parses ->
       case solutions parses of
-        [sem] -> return (pretty sem)
+        [sem] ->
+          case serializeTerm sem of
+            Nothing -> Left Nothing
+            Just s -> return s
         _     -> Left Nothing
   where
     lexr = convertWordsToLexer (lexicon pinfo)
