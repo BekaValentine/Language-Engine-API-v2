@@ -55,8 +55,9 @@ emptyChart = Chart M.empty
 
 
 
--- | An @Edge d l@ is just some data @d@ together with a @Chart d l@ that
--- corresponds to the rest of the chart after that edge.
+-- | An @Edge ws d l@ is just some data @d@ together with a @Chart d l@ that
+-- corresponds to the rest of the chart after that edge. The edge spans the
+-- terminals in @ws@.
 
 data Edge d l = Edge [String] d (Chart d l)
   deriving (Show,Eq,Generic)
