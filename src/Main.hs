@@ -127,7 +127,6 @@ serverContext conn = authCheck conn :. EmptyContext
 main :: IO ()
 main = do
   fp <- getDataFileName ""
-  --let fp = "./" -- for development only. on heroku, use above
   putStrLn $ "data file location: " ++ fp
   hSetBuffering stdout LineBuffering
   env <- getEnvironment
@@ -138,7 +137,7 @@ main = do
   conn <- DB.connectPostgreSQL
             "host=localhost user=language_engine_admin \
             \password=password dbname=language_engine"
-  -}
+  --}
   putStrLn $ "Running server on port " ++ show port ++ "..."
   let supportHostname = "smtpout.secureserver.net"
       supportPortNumber = 80
