@@ -16,6 +16,7 @@ build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
 -- library
+data-files: FOOBAR
 executable language-engine
   main-is:             Main.hs
   -- exposed-modules:     
