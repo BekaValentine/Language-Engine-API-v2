@@ -29,7 +29,6 @@ executable language-engine
                        binary,
                        bytestring,
                        containers,
-                       directory,
                        free,
                        lens,
                        mtl,

@@ -26,7 +26,6 @@ import Network.Socket (HostName,PortNumber)
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Cors
 import Servant
-import System.Directory
 import System.Environment
 import System.IO
 
@@ -129,8 +128,6 @@ main :: IO ()
 main = do
   fp <- getDataFileName ""
   putStrLn $ "data file location: " ++ fp
-  fs <- getDirectoryContents fp
-  print fs
   hSetBuffering stdout LineBuffering
   env <- getEnvironment
   let port = maybe 8080 read $ lookup "PORT" env
