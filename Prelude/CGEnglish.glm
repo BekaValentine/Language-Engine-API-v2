@@ -1,0 +1,833 @@
+module CGEnglish
+opening LE | CG
+where
+  
+  
+  
+  
+  -- | Finite sentences can be silently converted to clauses.
+  
+  let sentenceToClause : Rule where
+    | sentenceToClause =
+        MkRule
+          { ruleType = [rule| S Fin => CP Ind |]
+          , ruleMeaning =
+              \p -> `(reset wh in reset qr in Sigma ~p)
+          }
+  end
+  
+  
+  
+  
+  
+  -- | An imperative sentence can be formed from a bare VP, corresponding to
+  -- the inference rule
+  --
+  -- @
+  --    NP Snd Sg Nom \ S Bare
+  --    ---------------------- bare-VP-to-Imp.CP
+  --            CP Imp
+  -- @
+  
+  let bareVPToImperativeCP : Rule where
+    | bareVPToImperativeCP =
+        MkRule
+          { ruleType = [rule| (NP Snd Sg Nom \\ S Bare) => CP Imp |]
+          , ruleMeaning = \f ->
+              `(Sigma (\q ->
+                 (Quant Require q
+              		  (\x -> Speaker x)
+                     (\x p -> reset wh in reset qr in Sigma ~(f `x)))))
+          }
+  end
+  
+  
+  
+  
+  
+  -- | An indicative clause can be converted to an expression as an assertion.
+  
+  let indicativeCPToEXPR : Rule where
+    | indicativeCPToEXPR =
+        MkRule
+          { ruleType = [rule| CP Ind => EXPR |]
+          , ruleMeaning =
+              \p -> `(Act Assertion ~p)
+          }
+  end
+  
+  
+  
+  
+  
+  -- | An imperative clause can be converted to an expression as a command.
+  
+  let imperativeCPToEXPR : Rule where
+    | imperativeCPToEXPR =
+        MkRule
+          { ruleType = [rule| CP Imp => EXPR |]
+          , ruleMeaning = \p -> `(Act Command ~p)
+          }
+  end
+  
+  
+  
+  
+  
+  -- | An interrogative clause can be converted to an expression as a
+  -- question.
+  
+  let interrogativeCPToEXPR : Rule where
+    | interrogativeCPToEXPR =
+        MkRule
+          { ruleType = [rule| CP Intr => EXPR |]
+          , ruleMeaning = \p -> `(Act Question ~p)
+          }
+  end
+  
+  
+  
+  
+  
+  -- | Some predicates for pronominal states.
+  
+  data instance Predicate where
+    | ProHe : Predicate
+    | ProShe : Predicate
+    | ProIt : Predicate
+    | ProPerson : Predicate
+    | ProThing : Predicate
+  end
+  
+  
+  
+  
+  
+  -- * Some helper functions to build words.
+  
+  let noun
+      : String
+     -> NForm
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Word
+  where
+    | noun fm nf num pred rel =
+        MkWord
+          { form = fm
+          , category = [cat| N nf num |]
+          , meaning =`(\x -> Sigma (\s -> And (Pred ~pred s) (Rel ~rel s x)))
+          }
+  end
+  
+  
+  let verbIntrans
+      : String
+     -> Person
+     -> Number
+     -> SForm
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Word
+  where
+    | verbIntrans fm pers num sf pred subj =
+        MkWord
+          { form = fm
+          , category = [cat| NP pers num Nom \\ S sf |]
+          , meaning = \s -> `(\e -> And (Pred ~pred e) (Rel ~subj e ~s))
+          }
+  end
+  
+  
+  let verbPresIntrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPresIntrans fm pers num pred subj =
+        MkWord
+          { form = fm
+          , category = [cat| NP pers num Nom \\ S Fin |]
+          , meaning =
+              \s ->
+                `(\e ->
+                   And (Rel TimeOf e ~speechTime)
+                       (And (Pred ~pred e)
+                            (Rel ~subj e ~s)))
+          }
+  end
+  
+  
+  let verbPastIntrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPastIntrans fm pers num pred subj =
+        MkWord
+          { form = fm
+          , category = [cat| NP pers num Nom \\ S Fin |]
+          , meaning =
+              \s ->
+                `(\e ->
+                   And (Sigma (\t ->
+                         And (Rel TimeOf e t)
+                             (precedes t ~speechTime)))
+                       (And (Pred ~pred e)
+                            (Rel ~subj e ~s)))
+          }
+  end
+  
+  
+  let verbTrans
+      : String
+     -> Person
+     -> Number
+     -> SForm
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbTrans fm pers num sf pred subj obj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p : Person) (n : Number).
+                      (NP pers num Nom \\ S sf) // NP p n Acc
+                  |]
+          , meaning =
+              \o s ->
+                `(\e -> And (Pred ~pred e)
+                            (And (Rel ~subj e ~s) (Rel ~obj e ~o)))
+          }
+  end
+  
+  
+  let verbPresTrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPresTrans fm pers num pred subj obj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p : Person) (n : Number).
+                      (NP pers num Nom \\ S Fin) // NP p n Acc
+                  |]
+          , meaning =
+              \o s ->
+                `(\e -> 
+                   And (Rel TimeOf e ~speechTime)
+                       (And (Pred ~pred e)
+                            (And (Rel ~subj e ~s) (Rel ~obj e ~o))))
+          }
+  end
+  
+  
+  let verbPastTrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPastTrans fm pers num pred subj obj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p : Person) (n : Number).
+                      (NP pers num Nom \\ S Fin) // NP p n Acc
+                  |]
+          , meaning =
+              \o s ->
+                `(\e -> 
+                   And (Sigma (\t ->
+                         And (Rel TimeOf e t)
+                             (precedes t ~speechTime)))
+                       (And (Pred ~pred e)
+                            (And (Rel ~subj e ~s) (Rel ~obj e ~o))))
+          }
+  end
+  
+  
+  let verbDitrans
+      : String
+     -> Person
+     -> Number
+     -> SForm
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbDitrans fm pers num sf pred subj obj indobj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p p' : Person) (n n' : Number).
+                      ((NP pers num Nom \\ S sf) // NP p n Acc)
+                        // NP p' n' Acc
+                  |]
+          , meaning =
+              \d o s ->
+                `(\e -> And (Pred ~pred e)
+                            (And (Rel ~subj e ~s)
+                                 (And (Rel ~obj e ~o) (Rel ~indobj e ~d))))
+          }
+  end
+  
+  
+  let verbPresDitrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPresDitrans fm pers num pred subj obj indobj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p p' : Person) (n n' : Number).
+                      ((NP pers num Nom \\ S Fin) // NP p n Acc)
+                        // NP p' n' Acc
+                  |]
+          , meaning =
+              \d o s ->
+                `(\e ->
+                   And (Rel TimeOf e ~speechTime)
+                       (And (Pred ~pred e)
+                            (And (Rel ~subj e ~s)
+                                 (And (Rel ~obj e ~o) (Rel ~indobj e ~d)))))
+          }
+  end
+  
+  
+  let verbPastDitrans
+      : String
+     -> Person
+     -> Number
+     -> Quoted Predicate
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Quoted Relation
+     -> Word
+  where
+    | verbPastDitrans fm pers num pred subj obj indobj =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (p p' : Person) (n n' : Number).
+                      ((NP pers num Nom \\ S Fin) // NP p n Acc)
+                        // NP p' n' Acc
+                  |]
+          , meaning =
+              \d o s ->
+                `(\e ->
+                   And (Sigma (\t ->
+                         And (Rel TimeOf e t)
+                             (precedes t ~speechTime)))
+                       (And (Pred ~pred e)
+                            (And (Rel ~subj e ~s)
+                                 (And (Rel ~obj e ~o) (Rel ~indobj e ~d)))))
+          }
+  end
+  
+  
+  let ppAdvS
+      : String
+     -> SForm
+     -> (Quoted[qr,wh] Entity -> Quoted[qr,wh] (Entity -> Type) -> Quoted[qr,wh] Type)
+     -> Word
+  where
+    | ppAdvS fm sf' r =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (sf : SForm) (p : Person) (n : Number).
+                      ((NP p n Nom \\ S sf) \\ (NP p n Nom \\ S sf)) // S sf'
+                  |]
+          , meaning =
+              \ppobj vp s ->
+                `(\ev -> And (~(vp s) ev) ~(r `ev ppobj))
+          }
+  end
+  
+  
+  let complementizer : String -> Word where
+    | complementizer fm =
+        MkWord
+          { form = fm
+        	, category =
+        	    [cat| forall (num : Number) (kase : Case).
+        	            (N Common num \\ N Common num)
+        	              // (NP Thd num kase > CP Ind)
+        	        |]
+          , meaning =
+              \cp n -> `(\x -> And ~(cp `x) (~n x))
+          }
+  end
+  
+  
+  let determiner : String -> Number -> Quoted Quantifier -> Word where
+    | determiner fm num quant =
+        MkWord
+          { form = fm
+          , category =
+              [cat| forall (c : Case). NP Thd num c // N Common num |]
+          , meaning =
+              \{_} p ->
+                `(shift qr
+                  in Sigma (\e ->
+                       Quant ~quant e ~p (\x p' -> continue x)))
+          }
+  end
+  
+  
+  let pronoun
+      : String
+     -> Person
+     -> Number
+     -> Case
+     -> Quoted (Entity -> Type)
+     -> Word
+  where
+    | pronoun fm pers num kase pred =
+        MkWord
+          { form = fm
+          , category =
+              [cat| NP pers num kase |]
+          , meaning =
+              `(shift qr
+                in Sigma (\e ->
+                     Quant Require e ~pred (\x p' -> continue x)))
+          }
+  end
+  
+  
+  let presPerfAux
+      : String
+     -> Person
+     -> Number
+     -> SForm
+     -> Word
+  where
+    | presPerfAux fm pers num sf =
+        MkWord
+          { form = fm
+          , category =
+              [cat| (NP pers num Nom \\ S sf) // (NP pers num Nom \\ S Perf) |]
+          , meaning =
+              \vp qs ->
+                `(\r -> And (Rel TimeOf r ~speechTime)
+                            (Sigma (\e ->
+                               And (Rel TimeOf r ~speechTime)
+                                   (~(vp qs) e))))
+          }
+  end
+  
+  let pastPerfAux
+      : String
+     -> Person
+     -> Number
+     -> SForm
+     -> Word
+  where
+    | pastPerfAux fm pers num sf =
+        MkWord
+          { form = fm
+          , category =
+              [cat| (NP pers num Nom \\ S sf) // (NP pers num Nom \\ S Perf) |]
+          , meaning =
+              \vp qs ->
+                `(\r -> And (Sigma (\t ->
+                               And (Rel TimeOf r t)
+                                   (precedes t ~speechTime)))
+                            (Sigma (\e ->
+                               And (existsLift precedes TimeOf e r)
+                                   (~(vp qs) e))))
+          }
+  end
+  
+  
+  let doSupportPresAux : String -> Person -> Number -> Word where
+    | doSupportPresAux fm pers num =
+        MkWord
+          { form = fm
+          , category =
+              [cat| (NP pers num Nom \\ S Fin) // (NP pers num Nom \\ S Bare) |]
+          , meaning =
+              \vp qsubj ->
+                `(\e ->
+                   And (Rel TimeOf e ~speechTime)
+                       (~(vp qsubj) e))
+          }
+  end
+  
+  
+  
+  
+  
+  
+  
+  let heNP : Word where
+    | heNP =
+        pronoun
+          "he" Thd Sg Nom
+          `(\x -> Sigma (\e -> And (Pred ProHe e) (Rel Exp e x)))
+  end
+  
+  let himNP : Word where
+    | himNP =
+        pronoun
+          "him" Thd Sg Acc
+          `(\x -> Sigma (\e -> And (Pred ProHe e) (Rel Exp e x)))
+  end
+  
+  let sheNP : Word where
+    | sheNP =
+        pronoun
+          "she" Thd Sg Nom
+          `(\x -> Sigma (\e -> And (Pred ProShe e) (Rel Exp e x)))
+  end
+  
+  let herNP : Word where
+    | herNP =
+        pronoun
+          "her" Thd Sg Acc
+          `(\x -> Sigma (\e -> And (Pred ProShe e) (Rel Exp e x)))
+  end
+  
+  let itNPNom : Word where
+    | itNPNom =
+        pronoun
+          "it" Thd Sg Nom
+          `(\x -> Sigma (\e -> And (Pred ProIt e) (Rel Exp e x)))
+  end
+  
+  let itNPAcc : Word where
+    | itNPAcc =
+        pronoun
+          "it" Thd Sg Acc
+          `(\x -> Sigma (\e -> And (Pred ProIt e) (Rel Exp e x)))
+  end
+  
+  let aDet : Word where
+    | aDet = determiner "a" Sg `Exists
+  end
+  
+  let anDet : Word where
+    | anDet = determiner "an" Sg `Exists
+  end
+  
+  let theDet : Word where
+    | theDet = determiner "the" Sg `Require
+  end
+  
+  let beforePPAdvS : Word where
+    | beforePPAdvS =
+        ppAdvS "before" Fin (\qev0 qevpred ->
+          `(Sigma (\t0 ->
+             And (Rel TimeOf ~qev0 t0)
+                 (reset qr in Sigma (\ev1 ->
+                   And (~qevpred ev1)
+                       (Sigma (\t1 ->
+                         And (Rel TimeOf ev1 t1)
+                             (Sigma (\ord ->
+                               And (Pred Ord ord)
+                                   (And (Rel OrdEarlier ord t0)
+                                        (Rel OrdLater ord t1)))))))))))
+  end
+  
+  let thatComp : Word where
+    | thatComp = complementizer "that"
+  end
+  
+  let whoComp : Word where
+    | whoComp = complementizer "who"
+  end
+  
+  let whichComp : Word where
+    | whichComp = complementizer "which"
+  end
+  
+  
+  let have1SgPresPerfAux : Word where
+    | have1SgPresPerfAux = presPerfAux "have" Fst Sg Fin
+  end
+  
+  let have1PlPresPerfAux : Word where
+    | have1PlPresPerfAux = presPerfAux "have" Fst Pl Fin
+  end
+  
+  let have2SgPresPerfAux : Word where
+    | have2SgPresPerfAux = presPerfAux "have" Snd Sg Fin
+  end
+  
+  let have2PlPresPerfAux : Word where
+    | have2PlPresPerfAux = presPerfAux "have" Snd Pl Fin
+  end
+  
+  let has3SgPresPerfAux : Word where
+    | has3SgPresPerfAux = presPerfAux "has" Thd Sg Fin
+  end
+  
+  let have3PlPresPerfAux : Word where
+    | have3PlPresPerfAux = presPerfAux "have" Thd Pl Fin
+  end
+  
+  
+  let hadPastPerfAux : Word where
+    | hadPastPerfAux =
+        MkWord
+          { form = "had"
+          , category =
+              [cat| forall (pers : Person) (num : Number).
+                      (NP pers num Nom \\ S Fin) // (NP pers num Nom \\ S Perf)
+                  |]
+          , meaning =
+              \vp qs ->
+                `(\r -> And (Sigma (\t ->
+                               And (Rel TimeOf r t)
+                                   (precedes t ~speechTime)))
+                            (Sigma (\e ->
+                               And (existsLift precedes TimeOf e r)
+                                   (~(vp qs) e))))
+          }
+  end
+  
+  
+  let hadBarePerfAux : Word where
+    | hadBarePerfAux =
+        MkWord
+          { form = "had"
+          , category =
+              [cat| forall (pers : Person) (num : Number).
+                      (NP pers num Nom \\ S Bare) // (NP pers num Nom \\ S Perf)
+                  |]
+          , meaning =
+              \vp qs ->
+                `(\r -> Sigma (\e ->
+                          And (existsLift precedes TimeOf e r)
+                              (~(vp qs) e)))
+          }
+  end
+  
+  
+  let doSupport1SgPresAux : Word where
+    | doSupport1SgPresAux = doSupportPresAux "do" Fst Sg
+  end
+  
+  let doSupport1PlPresAux : Word where
+    | doSupport1PlPresAux = doSupportPresAux "do" Fst Pl
+  end
+  
+  let doSupport2SgPresAux : Word where
+    | doSupport2SgPresAux = doSupportPresAux "do" Snd Sg
+  end
+  
+  let doSupport2PlPresAux : Word where
+    | doSupport2PlPresAux = doSupportPresAux "do" Snd Pl
+  end
+  
+  let doSupport3SgPresAux : Word where
+    | doSupport3SgPresAux = doSupportPresAux "does" Thd Sg
+  end
+  
+  let doSupport3PlPresAux : Word where
+    | doSupport3PlPresAux = doSupportPresAux "do" Thd Pl
+  end
+  
+  let doSupportPastAux : Word where
+    | doSupportPastAux =
+        MkWord
+          { form = "did"
+          , category =
+              [cat| forall (pers : Person) (num : Number).
+                      (NP pers num Nom \\ S Fin) // (NP pers num Nom \\ S Bare)
+                  |]
+          , meaning =
+              \vp qsubj ->
+                `(\e ->
+                   And (Sigma (\t ->
+                          And (Rel TimeOf e t)
+                              (precedes t ~speechTime)))
+                       (~(vp qsubj) e))
+          }
+  end
+  
+  
+  let notPol : Word where
+    | notPol =
+        MkWord
+          { form = "not"
+          , category =
+              [cat| forall (pers : Person) (num : Number).
+                      (NP pers num Nom \\ S Bare) // (NP pers num Nom \\ S Bare)
+                  |]
+          , meaning =
+              \vp qsubj ->
+                `(\e ->
+                    And (Nonexistant e)
+                        (~(vp qsubj) e))
+          }
+  end
+  
+  let whatAccInSitu : Word where
+    | whatAccInSitu =
+        MkWord
+          { form = "what"
+          , category =
+              [cat| NP Thd Sg Acc |]
+          , meaning =
+              `(shift wh
+                in Sigma (\q ->
+                     Quant WH q
+                       (\x -> Pred ProThing x)
+                       (\x _ -> continue x)))
+          }
+  end
+  
+  let whatAccExSitu : Word where
+    | whatAccExSitu =
+        MkWord
+          { form = "what"
+          , category =
+              [cat| forall (p : Person) (n : Number).
+                      ((CP Intr // (NP Thd Sg Acc > (NP p n Nom \\ S Bare)))
+                        // NP p n Nom)
+                          // ((NP p n Nom \\ S Fin)
+                               // (NP p n Nom \\ S Bare))
+                  |]
+          , meaning =
+              \aux qsubj evp ->
+                `(Sigma (\q ->
+                   Quant WH q
+                     (\x -> Pred ProThing x)
+                     (\x _ ->
+                        reset wh in
+                          reset qr in
+                            Sigma (\e ->
+                              ~(aux (evp `x) qsubj) e))))
+          }
+  end
+  
+  let whoAccInSitu : Word where
+    | whoAccInSitu =
+        MkWord
+          { form = "who"
+          , category =
+              [cat| NP Thd Sg Acc |]
+          , meaning =
+              `(shift wh
+                in Sigma (\q ->
+                     Quant WH q
+                       (\x -> Pred ProPerson x)
+                       (\x _ -> continue x)))
+          }
+  end
+  
+  let whoAccExSitu : Word where
+    | whoAccExSitu =
+        MkWord
+          { form = "who"
+          , category =
+              [cat| forall (p : Person) (n : Number).
+                      ((CP Intr // (NP Thd Sg Acc > (NP p n Nom \\ S Bare)))
+                        // NP p n Nom)
+                          // ((NP p n Nom \\ S Fin)
+                               // (NP p n Nom \\ S Bare))
+                  |]
+          , meaning =
+              \aux qsubj evp ->
+                `(Sigma (\q ->
+                   Quant WH q
+                     (\x -> Pred ProPerson x)
+                     (\x _ ->
+                        reset wh in
+                          reset qr in
+                            Sigma (\e ->
+                              ~(aux (evp `x) qsubj) e))))
+          }
+  end
+  
+  let whatNom : Word where
+    | whatNom =
+        MkWord
+          { form = "what"
+          , category =
+              [cat| CP Intr // (NP Thd Sg Nom \\ S Fin) |]
+          , meaning =
+              \vp ->
+                `(Sigma (\q ->
+              	    Quant WH q
+                      (\x -> Pred ProThing x)
+                      (\x _ ->
+                        reset wh in
+                          reset qr in
+                            Sigma (\e -> ~(vp `x) e))))
+          }
+  end
+  
+  let whoNom : Word where
+    | whoNom =
+        MkWord
+          { form = "who"
+          , category =
+              [cat| CP Intr // (NP Thd Sg Nom \\ S Fin) |]
+          , meaning =
+              \vp ->
+                `(Sigma (\q ->
+              	    Quant WH q
+                      (\x -> Pred ProPerson x)
+                      (\x _ ->
+                        reset wh in
+                          reset qr in
+                            Sigma (\e -> ~(vp `x) e))))
+          }
+  end
+  
+  
+  
+  
+  
+  
+  
+  
+  let barePlural : Rule where
+    | barePlural =
+        MkRule
+          { ruleType = [rule| N Common Pl => NP Thd Pl Acc |]
+          , ruleMeaning =
+              \qp ->
+                `(shift qr
+                  in Sigma (\e ->
+                       Quant Forall e ~qp (\x p -> continue x)))
+          }
+  end
+  
+  
+  
+  
+  
+  
+end
