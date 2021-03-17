@@ -1,0 +1,260 @@
+module CG
+opening LE
+where
+  
+  
+  
+  
+  
+  -- * Clauses/CPs have type CP, and there are a variety of forms that they
+  -- can take on.
+  
+  data CPForm where
+    | Ind : CPForm
+    | Imp : CPForm
+    | Intr : CPForm
+    | Bg : CPForm
+  end
+  
+  data instance Category where
+    | CP (form : CPForm) : Category
+  end
+  
+  let instance interpCat where
+    | interpCat (CP _) = Quoted Type
+  end
+  
+  
+  
+  
+  
+  -- * Sentences/Ss have type S, and there are a variety of tense/aspect forms
+  -- that they can have.
+  
+  data SForm where
+    | Fin : SForm
+    | Bare : SForm
+    | Perf : SForm
+    | Prog : SForm
+    | Pass : SForm
+    | Ger : SForm
+  end
+  
+  data instance Category where
+    | S (form : SForm) : Category
+  end
+  
+  let instance interpCat where
+    | interpCat (S _) = Quoted[qr,wh] (Entity -> Type)
+  end
+  
+  
+  
+  
+  
+  -- | Nominal number is used in a variety of places.
+  
+  data Number where
+    | Sg : Number
+    | Pl : Number
+    | Ms : Number
+  end
+  
+  
+  
+  
+  
+  -- * Nouns/Ns have type N, and can take on a number of forms, and numbers.
+  
+  data NForm where
+    | Common : NForm
+    | Proper : NForm
+  end
+  
+  data instance Category where
+    | N (form : NForm) (number : Number) : Category
+  end
+  
+  let instance interpCat where
+    | interpCat (N _ _) = Quoted[qr,wh] (Entity -> Type)
+  end
+  
+  
+  
+  
+  
+  -- * Noun phrases/NPs have type NP, and have my forms and parameters.
+  
+  data Person where
+    | Fst : Person
+    | Snd : Person
+    | Thd : Person
+  end
+  
+  data Case where
+    | Nom : Case
+    | Acc : Case
+  end
+  
+  data instance Category where
+    | NP (person : Person) (number : Number) (kase : Case): Category
+  end
+  
+  let instance interpCat where
+    | interpCat (NP _ _ _) = Quoted[qr,wh] Entity
+  end
+  
+  
+  
+  
+  
+  -- * Preposition phrases/PPs have type PP and can take on any number of
+  -- forms which come from an open type of PP forms. These PPs are for
+  -- PP args not for modificational PPs, which can be defined in terms of
+  -- function categories.
+  
+  data family PPForm end
+  
+  data instance Category where
+    | PP (form : PPForm) : Category
+  end
+  
+  let instance interpCat where
+    | interpCat (PP _) = Quoted[qr,wh] (Entity -> Type)
+  end
+  
+  
+  
+  
+  
+  -- * Function categories give rise to function rules.
+  
+  data instance Category where
+    | Under (arg ret : Category) : Category
+    | Over (ret arg : Category) : Category
+    | Gap (arg ret : Category) : Category
+  end
+  
+  let instance interpCat where
+    | interpCat (Under arg ret) = interpCat arg -> interpCat ret
+    | interpCat (Over ret arg) = interpCat arg -> interpCat ret
+    | interpCat (Gap arg ret) = interpCat arg -> interpCat ret
+  end
+  
+  
+  
+  
+  
+  -- * Slash categories have elim rules corresponding to the inference rules
+  --
+  -- @
+  --   A   A \ B
+  --   --------- \E
+  --       B
+  --
+  --   B / A   A
+  --   --------- /E
+  --       B
+  -- @
+  
+  let underElim : Rule where
+    | underElim =
+        MkRule { ruleType = [rule| forall (arg ret : Category). arg * (arg \\ ret) => ret |]
+               , ruleMeaning = \x f -> f x
+               }
+  end
+  
+  let overElim : Rule where
+    | overElim =
+        MkRule { ruleType = [rule| forall (arg ret : Category). (ret // arg) * arg => ret |]
+               , ruleMeaning = \f x -> f x
+               }
+  end
+  
+  
+  
+  
+  
+  -- * We can convert a slash argument into a gap argument. This corresponds
+  -- to the inference rules
+  --
+  -- @
+  --   A \ B
+  --   ----- \-to->
+  --   A > B
+  --
+  --   B / A
+  --   ----- /-to->
+  --   A > B
+  -- @
+  
+  let underToGap : Rule where
+    | underToGap =
+        MkRule { ruleType = [rule| forall (arg ret : Category). (arg \\ ret) => (arg > ret) |]
+               , ruleMeaning = \f -> f
+               }
+  end
+  
+  let overToGap : Rule where
+    | overToGap =
+        MkRule { ruleType = [rule| forall (arg ret : Category). (ret // arg) => (arg > ret) |]
+               , ruleMeaning = \f -> f
+               }
+  end
+  
+  
+  
+  
+  
+  -- * Gaps can propagate through slash categories, corresponding to the
+  -- inference rules
+  --
+  -- @
+  --    G > (A \ B)
+  --    ----------- >-\-propagate
+  --    A \ (G > B)
+  --
+  --    G > (B / A)
+  --    ----------- >-/-propagate
+  --    (G > B) / A
+  -- @
+  
+  let gapThroughUnder : Rule where
+    | gapThroughUnder =
+        MkRule { ruleType = [rule| forall (gap arg ret : Category). (gap > (arg \\ ret)) => (arg \\ (gap > ret)) |]
+               , ruleMeaning = \f x y -> f y x
+               }
+  end
+  
+  let gapThroughOver : Rule where
+    | gapThroughOver =
+        MkRule { ruleType = [rule| forall (gap arg ret : Category). (gap > (ret // arg)) => ((gap > ret) // arg) |]
+               , ruleMeaning = \f x y -> f y x
+               }
+  end
+  
+  
+  
+  
+  
+  -- | Gaps can propagate through the S-to-CP rule. This corresponds to the
+  -- inference rule
+  --
+  -- @
+  --    G > S Fin
+  --    ---------- >-S-CP
+  --    G > CP Ind
+  -- @
+  
+  let gapSThroughGapCP : Rule where
+    | gapSThroughGapCP =
+        MkRule { ruleType = [rule| forall (gap : Category). (gap > S Fin) => (gap > CP Ind) |]
+               , ruleMeaning = \p x -> `(reset wh in reset qr in Sigma ~(p x))
+               }
+  end
+  
+  
+  
+  
+  
+end
