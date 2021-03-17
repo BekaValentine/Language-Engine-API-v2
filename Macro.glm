@@ -1,0 +1,82 @@
+module MacroDemo
+opening LE | CG | CGEnglish
+where
+  
+  
+  
+  data instance Predicate where
+    | Show : Predicate
+    | User : Predicate
+    | ListenTo : Predicate
+    | Song : Predicate
+    | SignUp : Predicate
+    | Album : Predicate
+    
+    | Dog : Predicate
+    | Man : Predicate
+    | Bark : Predicate
+    | Bite : Predicate
+  end
+  
+  data instance Relation where
+    | Shower : Relation
+    | Shown : Relation
+    | ID : Relation
+    | Listener : Relation
+    | ListenedTo : Relation
+    | SignUper : Relation
+    
+    | Barker : Relation
+    | Biter : Relation
+    | Bitten : Relation
+  end
+  
+  
+  
+  
+  
+  let dogNCommSg : Word where
+    | dogNCommSg = noun "dog" Common Sg `Dog `Exp
+  end
+  
+  
+  let manNCommSg : Word where
+    | manNCommSg = noun "man" Common Sg `Man `Exp
+  end
+  
+  
+  let barked : Word where
+    | barked = verbPastIntrans "barked" Thd Sg `Bark `Barker
+  end
+  
+  let bit : Word where
+    | bit = verbPastTrans "bit" Thd Sg `Bite `Biter `Bitten
+  end
+  
+  let barkBare : Word where
+    | barkBare = verbIntrans "bark" Snd Sg Bare `Bark `Barker
+  end
+  
+  let biteBare : Word where
+    | biteBare = verbTrans "bite" Snd Sg Bare `Bite `Biter `Bitten
+  end
+  
+  let song : Word where
+    | song = noun "song" Common Sg `Song `ID
+  end
+  
+  let show : Word where
+    | show = verbTrans "show" Snd Sg Bare `Show `Shower `Shown
+  end
+  
+  
+  let songs : Word where
+    | songs = noun "songs" Common Pl `Song `ID
+  end
+  
+  
+  
+  
+  
+  
+end
