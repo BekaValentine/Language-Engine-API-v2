@@ -1,0 +1,237 @@
+module LE where
+  
+  
+  
+  
+  
+  -- * These are the core semantic types used in LE projects. They define the
+  -- semantic primitives of natural language meaning.
+  
+  data Entity end
+  
+  data Background (e : Entity) end
+  
+  data Nonexistant (e : Entity) end
+  
+  data family Predicate end
+  
+  data family Relation end
+  
+  data Pred (p : Predicate) (e : Entity) end
+  
+  data instance Predicate where
+    | Named : Predicate
+    | Ord : Predicate
+    | SpeechTime : Predicate
+  end
+  
+  data Rel (r : Relation) (e x : Entity) end
+  
+  data instance Relation where
+    | Subj : Relation
+    | Obj : Relation
+    | Exp : Relation
+    | Dest : Relation
+    | Name : Relation
+    | TimeOf : Relation
+    | OrdEarlier : Relation
+    | OrdLater : Relation
+    | PerfTime : Relation
+  end
+  
+  data family Quantifier end
+  
+  data instance Quantifier where
+    | Forall : Quantifier
+    | Exists : Quantifier
+    | Require : Quantifier
+    | WH : Quantifier
+  end
+  
+  data Quant (q : Quantifier)
+  			 (e : Entity)
+  			 (restr : Entity -> Type)
+             (scope : (x : Entity) -> restr x -> Type) end
+  
+  data family SpeechAct end
+  
+  data instance SpeechAct where
+    | Assertion : SpeechAct
+    | Command : SpeechAct
+    | Question : SpeechAct
+  end
+  
+  data Act (a : SpeechAct) (p : Type) end
+  
+  data Speaker (x : Entity) end
+  
+  data Addressee (x : Entity) end
+  
+  
+  
+  
+  
+  -- | There's two reset position, namely @qr@ for quantifier raising,
+  -- and @wh@ for WH movement.
+  
+  reset qr from Entity to Type end
+  
+  reset wh from Entity to Type end
+  
+  
+  
+  
+  
+  -- * These are some utility functions, etc. that make things easier.
+  
+  {-
+  let exists : (Entity -> Type) -> Type where
+    | exists p = Rec { witness : Entity, proof : p witness }
+  end
+  
+  let and : Type -> Type -> Type where
+    | and p q = Rec { fst : p, snd : q }
+  end
+  -}
+  
+  data And (p q : Type) end
+  
+  data Sigma (p : Entity -> Type) end
+  
+  let speechTime : Quoted[qr] Entity where
+    | speechTime =
+        `(shift qr
+          in Sigma (\e ->
+               Quant Require e
+                     (\x -> Pred SpeechTime x)
+                     (\x _ -> continue x)))
+  end
+  
+  let precedes : Entity -> Entity -> Type where
+    | precedes t t' =
+        Sigma (\o ->
+          And (Pred Ord o)
+              (And (Rel OrdEarlier o t)
+                   (Rel OrdLater o t')))
+  end
+  
+  let existsLift
+      : (Entity -> Entity -> Type)
+     -> Relation
+     -> Entity
+     -> Entity
+     -> Type
+  where
+    | existsLift p r x y =
+        Sigma (\x' ->
+          And (Rel r x x')
+              (Sigma (\y' ->
+                 And (Rel r y y')
+                     (p x' y'))))
+  end
+  
+  
+  
+  
+  
+  -- * Categories are syntactic types. They can be interpreted into Golem
+  -- types to explain their corresponding meanings.
+  
+  data family Category end
+  
+  let family interpCat (c : Category) : Type end
+  
+  data QCategory where
+    | QCDone (cat : Category) : QCategory
+    | QCForall (a : Type) (p : a -> QCategory) : QCategory
+  end
+  
+  let interpQCat : QCategory -> Type where
+    | interpQCat (QCDone cat) = interpCat cat
+    | interpQCat (QCForall a p) = {x : a} -> interpQCat (p x)
+  end
+  
+  
+  
+  
+  
+  -- | There are two universally available syntactic categories:
+  -- EXPR for expressions, and STRING for strings.
+  
+  data instance Category where
+    | EXPR : Category
+    | STRING : Category
+  end
+  
+  let instance interpCat where
+    | interpCat EXPR = Quoted Type
+    | interpCat STRING = Quoted String
+  end
+  
+  
+  
+  
+  
+  -- * A rule type is a function over categories. They can be interpreted into
+  -- Golem types that correspond to their meanings.
+  
+  data RuleType where
+    | RDone (c : Category) : RuleType
+    | RArg (c : Category) (r : RuleType) : RuleType
+  end
+  
+  let interpRule : RuleType -> Type where
+    | interpRule (RDone c) = interpCat c
+    | interpRule (RArg c r) = interpCat c -> interpRule r
+  end
+  
+  
+  
+  
+  
+  -- * A quantified rule type is a prenex quantified rule type. They can be
+  -- interpreted into Golem types that correspond to their meanings.
+  
+  data QRuleType where
+    | QRDone (r : RuleType) : QRuleType
+    | QRForall (a : Type) (f : a -> QRuleType) : QRuleType
+  end
+  
+  let interpQRule : QRuleType -> Type where
+    | interpQRule (QRDone r) = interpRule r
+    | interpQRule (QRForall a f) = {x : a} -> interpQRule (f x)
+  end
+  
+  
+  
+  
+  
+  -- | A word is a record consisting of a form string, a quantified category,
+  -- and an inhabitant of the category's interpretation.
+  
+  data Word where
+    | MkWord (w : Rec { form : String
+                      , category : QCategory
+                      , meaning : interpQCat category
+                      })
+        : Word
+  end
+  
+  
+  
+  
+  -- | A rule is a record consisting of a quantified rule type, and an
+  -- inhabitant of it's interpretation.
+  
+  data Rule where
+    | MkRule (r : Rec { ruleType : QRuleType
+                      , ruleMeaning : interpQRule ruleType
+                      })
+             : Rule
+  end
+  
+  
+  
+  
+  
+end
